@@ -1,0 +1,612 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#0f6e6b" />
+<title>分帳趣</title>
+<style>
+:root{
+  --sea:#0f6e6b; --sea-d:#0a4d4b; --sand:#f4efe6; --ink:#1f2a2a;
+  --muted:#71807e; --line:#e4ddd0; --card:#fffdf8; --coral:#d9544d;
+  --amber:#c98a2b; --pos:#0f8a5f;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;padding:0;background:var(--sand)}
+body{font-family:"PingFang TC","Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;color:var(--ink)}
+.app,.gate{max-width:480px;margin:0 auto;min-height:100vh}
+.num{font-variant-numeric:tabular-nums;font-feature-settings:"tnum";
+  font-family:"SF Mono",ui-monospace,"Roboto Mono",monospace}
+button{cursor:pointer;font-family:inherit}
+
+.hdr{background:linear-gradient(135deg,var(--sea),var(--sea-d));color:#fff;
+  padding:18px 18px 16px;position:sticky;top:0;z-index:5;border-radius:0 0 22px 22px}
+.hdr-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.hdr-name{font-size:21px;font-weight:800;letter-spacing:.5px}
+.hdr-sub{font-size:12px;opacity:.85;margin-top:2px}
+.hdr-sub b{letter-spacing:1px}
+.hdr-btns{display:flex;gap:7px}
+.leave{background:rgba(255,255,255,.18);border:none;color:#fff;padding:7px 12px;
+  border-radius:20px;font-size:13px;font-weight:600}
+.hdr-total{display:flex;justify-content:space-between;align-items:baseline;margin-top:14px;font-size:13px;opacity:.95}
+.hdr-total .num{font-size:24px;font-weight:700}
+
+.body{padding:14px 14px 96px}
+.day{font-size:13px;color:var(--muted);font-weight:700;margin:14px 4px 7px}
+.row{display:flex;align-items:center;gap:12px;width:100%;text-align:left;background:var(--card);
+  border:1px solid var(--line);border-radius:14px;padding:13px 14px;margin-bottom:8px}
+.row-ic{font-size:22px;width:30px;text-align:center}
+.row-mid{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.row-desc{font-weight:600;font-size:15px}
+.row-meta{font-size:12px;color:var(--muted)}
+.row-amt{font-weight:700;font-size:15px;white-space:nowrap}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:12px}
+.card-title{font-weight:700;font-size:15px;margin-bottom:12px}
+.receipt-top{font-weight:700;border-bottom:2px dashed var(--line);padding-bottom:10px;margin-bottom:6px;font-size:14px;color:var(--sea-d)}
+.tx{display:grid;grid-template-columns:1fr auto 1fr auto;gap:8px;align-items:center;
+  padding:11px 0;border-bottom:1px dashed var(--line);font-size:14px}
+.tx:last-child{border-bottom:none}
+.tx-from{font-weight:600;color:var(--coral)}
+.tx-arrow{font-size:11px;color:var(--muted)}
+.tx-to{font-weight:600;color:var(--pos)}
+.tx-amt{font-weight:700;text-align:right}
+.balanced{text-align:center;padding:18px;color:var(--pos);font-weight:600}
+
+.bal{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid var(--line)}
+.bal:last-child{border-bottom:none}
+.bal-name{font-weight:600}
+.bal-nums{display:flex;flex-direction:column;align-items:flex-end;gap:2px}
+.bal-detail{font-size:11px;color:var(--muted)}
+.bal-net{font-weight:700;font-size:14px}
+.bal-net.pos{color:var(--pos)} .bal-net.neg{color:var(--coral)}
+
+.fab{position:fixed;left:50%;transform:translateX(-50%);bottom:78px;background:var(--coral);color:#fff;
+  border:none;padding:13px 26px;border-radius:30px;font-size:16px;font-weight:700;
+  box-shadow:0 6px 18px rgba(217,84,77,.4);z-index:6;max-width:440px}
+.nav{position:fixed;bottom:0;left:50%;transform:translateX(-50%);width:100%;max-width:480px;
+  background:var(--card);border-top:1px solid var(--line);display:flex;z-index:6;padding-bottom:env(safe-area-inset-bottom)}
+.nav-btn{flex:1;border:none;background:none;padding:9px 0 11px;font-size:11px;color:var(--muted);
+  display:flex;flex-direction:column;align-items:center;gap:3px}
+.nav-btn.on{color:var(--sea)}
+.nav-ic{font-size:19px}
+
+.empty{text-align:center;color:var(--muted);padding:70px 20px;line-height:2}
+.empty-ic{font-size:46px;margin-bottom:10px}
+
+.inp{width:100%;border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:12px 13px;
+  font-size:16px;color:var(--ink);margin-bottom:10px;font-family:inherit}
+.inp:focus{outline:none;border-color:var(--sea)}
+.inp.big{font-size:22px;text-align:center;letter-spacing:3px;font-weight:700}
+.inp.sm{width:90px;margin:0;text-align:right}
+.lbl{display:block;font-size:13px;font-weight:700;color:var(--muted);margin:6px 2px 8px}
+.hint{font-size:12px;color:var(--muted);line-height:1.7;margin-top:8px}
+.err{color:var(--coral);font-size:13px;margin-bottom:8px}
+.warn{text-align:center;color:var(--amber);font-size:12px;padding:0 24px 20px;max-width:480px;margin:0 auto}
+
+.btn{width:100%;border:none;border-radius:13px;padding:14px;font-size:16px;font-weight:700;margin-bottom:10px;font-family:inherit}
+.btn.primary{background:var(--sea);color:#fff}
+.btn.ghost{background:transparent;color:var(--sea);border:1.5px solid var(--line)}
+.btn.sm{width:auto;padding:10px 16px;font-size:14px;margin:0}
+.btn.big{margin-top:8px;background:var(--coral)}
+.del{background:none;border:none;color:var(--coral);font-size:13px;font-weight:600}
+
+.gate{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:30px 22px;min-height:100vh}
+.gate-card{background:var(--card);border:1px solid var(--line);border-radius:24px;padding:30px 24px;width:100%;
+  box-shadow:0 10px 40px rgba(15,110,107,.12)}
+.logo{font-size:34px;font-weight:900;color:var(--sea);text-align:center;letter-spacing:2px}
+.tagline{text-align:center;color:var(--muted);font-size:13px;margin:6px 0 24px}
+.add-row{display:flex;gap:8px;align-items:flex-start}
+.add-row .inp{margin:0}
+
+.seg{display:flex;gap:6px;background:#efe9dc;padding:4px;border-radius:12px;margin-bottom:6px}
+.seg.compact{margin:0;background:transparent;padding:0;gap:5px}
+.seg-btn{flex:1;border:none;background:transparent;padding:9px;border-radius:9px;font-size:14px;font-weight:600;color:var(--muted);font-family:inherit}
+.seg-btn.on{background:#fff;color:var(--sea);box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.seg.compact .seg-btn{background:#efe9dc;border-radius:9px}
+.seg.compact .seg-btn.on{background:var(--sea);color:#fff}
+
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:8px}
+.chip{border:1.5px solid var(--line);background:#fff;padding:8px 14px;border-radius:20px;font-size:14px;font-weight:600;color:var(--muted);font-family:inherit}
+.chip.on{background:var(--sea);color:#fff;border-color:var(--sea)}
+
+.cats{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:10px}
+.cat{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:10px 4px;font-size:12px;font-weight:600;
+  color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:4px;font-family:inherit}
+.cat span{font-size:20px}
+.cat.on{border-color:var(--sea);background:#eaf4f3;color:var(--sea)}
+
+.sheet-wrap{position:fixed;inset:0;background:rgba(20,30,30,.45);z-index:20;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--sand);width:100%;max-width:480px;border-radius:24px 24px 0 0;padding:8px 18px 26px;max-height:92vh;overflow-y:auto;animation:up .25s ease}
+@keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
+.sheet-grip{width:40px;height:4px;background:var(--line);border-radius:3px;margin:6px auto 12px}
+.sheet-h{display:flex;justify-content:space-between;align-items:center;font-size:18px;font-weight:800;margin-bottom:14px}
+.amt-box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:14px;margin-bottom:12px}
+.amt-inp{width:100%;border:none;background:none;font-size:40px;font-weight:800;text-align:center;color:var(--ink);margin-top:8px;font-variant-numeric:tabular-nums;font-family:"SF Mono",ui-monospace,monospace}
+.amt-inp:focus{outline:none}
+.split-rows{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
+.split-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.split-row span:first-child{font-weight:600}
+.unit{color:var(--muted);font-size:13px}
+.rate-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px}
+.rate-row .inp{margin:0;width:100px;text-align:right}
+.setup{padding:40px 24px;max-width:480px;margin:0 auto;line-height:1.9}
+.setup code{background:#efe9dc;padding:2px 6px;border-radius:5px;font-size:13px}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<div id="sheet"></div>
+
+<script>
+/* ============================================================== */
+/*  設定：貼上你部署 Apps Script 後得到的網址（結尾是 /exec）        */
+/* ============================================================== */
+const API_URL = 'https://script.google.com/macros/s/AKfycbxPdC5fAc5SLezN863VfJm7Ab5RsJTDmyxvBma-TlZ3pAS9TCMI5GBBPiHJ-LSObWWK/exec';
+
+/* ---------------------------- 常數 ---------------------------- */
+const CURRENCIES = {
+  TWD:{symbol:"NT$",label:"台幣"},
+  MYR:{symbol:"RM",label:"馬幣"},
+  SGD:{symbol:"S$",label:"星幣"},
+};
+const CATEGORIES = [
+  {id:"food",label:"餐飲",icon:"🍜"},
+  {id:"stay",label:"住宿",icon:"🏨"},
+  {id:"transport",label:"交通",icon:"🚗"},
+  {id:"fun",label:"門票娛樂",icon:"🎢"},
+  {id:"shop",label:"購物",icon:"🛍️"},
+  {id:"other",label:"其他",icon:"💡"},
+];
+const catOf = id => CATEGORIES.find(c=>c.id===id) || CATEGORIES[5];
+const uid = () => Math.random().toString(36).slice(2,9);
+const fmt = n => Math.round(n).toLocaleString("en-US",{maximumFractionDigits:0});
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+/* ---------------------------- 狀態 ---------------------------- */
+let trip=null, code=null, tab="ledger";
+let sheetEditing=null, sheetOpen=false;
+let gateMode="home", gateNames=["",""], gateErr="";
+
+/* --------------------------- API 層 --------------------------- */
+async function apiLoad(c){
+  const r = await fetch(API_URL + "?code=" + encodeURIComponent(c));
+  const j = await r.json();
+  return j.trip;
+}
+async function apiSave(t){
+  // text/plain body 屬於 CORS 簡單請求，可避開預檢問題
+  try{
+    await fetch(API_URL,{method:"POST",body:JSON.stringify(t)});
+  }catch(e){ /* 寫入仍會送達伺服器，下一次輪詢會校正 */ }
+}
+
+function newTrip(c,name,members){
+  return {code:c,name:name||"我們的旅程",baseCurrency:"TWD",
+    rates:{TWD:1,MYR:7.8,SGD:24.6},
+    members:members.map(n=>({id:uid(),name:n})),expenses:[],updatedAt:Date.now()};
+}
+
+async function save(next){
+  next.updatedAt = Date.now();
+  trip = next;
+  render();                 // 樂觀更新：先更新畫面
+  await apiSave(next);       // 再寫雲端
+  setTimeout(poll, 1500);    // 稍後校正
+}
+
+/* --------------------------- 計算 ----------------------------- */
+function shareMap(e){
+  const out={};
+  if(e.splitType==="exact"){
+    Object.entries(e.exact||{}).forEach(([m,a])=>out[m]=Number(a)||0);
+  }else if(e.splitType==="shares"){
+    const tot=Object.values(e.shares||{}).reduce((s,v)=>s+(Number(v)||0),0);
+    if(tot>0)Object.entries(e.shares).forEach(([m,v])=>out[m]=e.amount*(Number(v)||0)/tot);
+  }else{
+    const ps=e.participants||[];
+    if(ps.length)ps.forEach(m=>out[m]=e.amount/ps.length);
+  }
+  return out;
+}
+function computeBalances(t){
+  const base=t.baseCurrency;
+  const toBase=(a,c)=>a*(t.rates[c]||0)/(t.rates[base]||1);
+  const net={},paid={},spent={};
+  t.members.forEach(m=>{net[m.id]=0;paid[m.id]=0;spent[m.id]=0;});
+  t.expenses.forEach(e=>{
+    if(net[e.payerId]===undefined)return;
+    const v=toBase(e.amount,e.currency);
+    net[e.payerId]+=v; paid[e.payerId]+=v;
+    const owes=shareMap(e);
+    Object.entries(owes).forEach(([m,a])=>{
+      if(net[m]===undefined)return;
+      const b=toBase(a,e.currency); net[m]-=b; spent[m]+=b;
+    });
+  });
+  return {net,paid,spent};
+}
+function settle(net){
+  const cred=[],debt=[];
+  Object.entries(net).forEach(([id,v])=>{
+    if(v>0.5)cred.push({id,v}); else if(v<-0.5)debt.push({id,v:-v});
+  });
+  cred.sort((a,b)=>b.v-a.v); debt.sort((a,b)=>b.v-a.v);
+  const tx=[];let i=0,j=0;
+  while(i<debt.length&&j<cred.length){
+    const amt=Math.min(debt[i].v,cred[j].v);
+    tx.push({from:debt[i].id,to:cred[j].id,amt});
+    debt[i].v-=amt;cred[j].v-=amt;
+    if(debt[i].v<0.5)i++; if(cred[j].v<0.5)j++;
+  }
+  return tx;
+}
+const mName = id => esc((trip.members.find(m=>m.id===id)||{}).name||"?");
+
+/* ============================ 渲染 ============================ */
+function render(){
+  const root=document.getElementById("root");
+  if(!API_URL || API_URL.indexOf("貼上")>=0){ root.innerHTML=setupHTML(); return; }
+  if(!trip){ root.innerHTML=gateHTML(); bindGate(); return; }
+  root.innerHTML=appHTML();
+  bindApp();
+}
+
+function setupHTML(){
+  return `<div class="setup">
+    <div class="logo">分帳趣</div>
+    <p style="margin-top:18px">還沒設定後端網址。請先完成 Apps Script 部署，把結尾為 <code>/exec</code>
+    的網址貼到 <code>index.html</code> 最上方的 <code>API_URL</code>，再重新整理。</p>
+  </div>`;
+}
+
+/* ----- 進入頁 ----- */
+function gateHTML(){
+  let inner="";
+  if(gateMode==="home"){
+    inner=`
+      <button class="btn primary" data-g="create">建立新旅程</button>
+      <button class="btn ghost" data-g="join">用代碼加入</button>
+      <p class="hint">建立後會拿到一組代碼。把這個網頁連結與代碼分享給同行的人，大家就能記同一本帳。</p>`;
+  }else if(gateMode==="join"){
+    inner=`
+      <label class="lbl">旅程代碼</label>
+      <input class="inp big" id="g-code" placeholder="例如 AB12CD" autocomplete="off" />
+      ${gateErr?`<div class="err">${esc(gateErr)}</div>`:""}
+      <button class="btn primary" data-g="do-join">加入</button>
+      <button class="btn ghost" data-g="home">返回</button>`;
+  }else{
+    inner=`
+      <label class="lbl">旅程名稱</label>
+      <input class="inp" id="g-name" placeholder="新馬家庭旅遊" value="" />
+      <label class="lbl">成員</label>
+      ${gateNames.map((n,i)=>`<input class="inp g-mem" placeholder="成員 ${i+1}" value="${esc(n)}" />`).join("")}
+      <button class="btn ghost sm" data-g="more" style="margin-bottom:10px">＋ 多一位</button>
+      <button class="btn primary" data-g="do-create">建立旅程</button>
+      <button class="btn ghost" data-g="home">返回</button>`;
+  }
+  return `<div class="gate"><div class="gate-card">
+    <div class="logo">分帳趣</div>
+    <p class="tagline">旅行記帳 · 多人雲端同步 · 自動結算</p>
+    ${inner}
+  </div></div>`;
+}
+function readGateNames(){
+  const els=document.querySelectorAll(".g-mem");
+  if(els.length)gateNames=Array.from(els).map(e=>e.value);
+}
+function bindGate(){
+  document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
+    const g=b.dataset.g;
+    if(g==="create"){gateMode="create";gateNames=["",""];render();}
+    else if(g==="join"){gateMode="join";gateErr="";render();}
+    else if(g==="home"){gateMode="home";render();}
+    else if(g==="more"){readGateNames();gateNames.push("");render();}
+    else if(g==="do-join"){
+      const c=(document.getElementById("g-code").value||"").trim().toUpperCase();
+      if(!c)return;
+      const t=await apiLoad(c);
+      if(t){trip=t;code=c;localStorage.setItem("split-code",c);render();}
+      else{gateErr="找不到這個代碼，請確認後再試。";render();}
+    }
+    else if(g==="do-create"){
+      readGateNames();
+      const name=document.getElementById("g-name").value;
+      const m=gateNames.map(s=>s.trim()).filter(Boolean);
+      if(m.length<2){gateErr="";return;}
+      const c=Math.random().toString(36).slice(2,6).toUpperCase()+Math.random().toString(36).slice(2,4).toUpperCase();
+      code=c; localStorage.setItem("split-code",c);
+      await save(newTrip(c,name,m));
+    }
+  });
+}
+
+/* ----- 主畫面 ----- */
+function appHTML(){
+  const {paid}=computeBalances(trip);
+  const total=Object.values(paid).reduce((s,v)=>s+v,0);
+  let view="";
+  if(tab==="ledger")view=ledgerHTML();
+  else if(tab==="settle")view=settleHTML();
+  else if(tab==="members")view=membersHTML();
+  else view=settingsHTML();
+  return `<div class="app">
+    <header class="hdr">
+      <div class="hdr-row">
+        <div>
+          <div class="hdr-name">${esc(trip.name)}</div>
+          <div class="hdr-sub">代碼 <b>${esc(trip.code)}</b> · ${trip.members.length} 人</div>
+        </div>
+        <div class="hdr-btns">
+          <button class="leave" data-act="refresh">↻</button>
+          <button class="leave" data-act="leave">切換</button>
+        </div>
+      </div>
+      <div class="hdr-total"><span>總支出</span>
+        <span class="num">${CURRENCIES[trip.baseCurrency].symbol} ${fmt(total)}</span></div>
+    </header>
+    <main class="body">${view}</main>
+    ${tab==="ledger"?`<button class="fab" data-act="add">＋ 記一筆</button>`:""}
+    <nav class="nav">
+      ${[["ledger","帳目","🧾"],["settle","結算","🔄"],["members","成員","👥"],["settings","設定","⚙️"]]
+        .map(([k,l,ic])=>`<button class="nav-btn ${tab===k?"on":""}" data-tab="${k}">
+          <span class="nav-ic">${ic}</span>${l}</button>`).join("")}
+    </nav>
+  </div>`;
+}
+function bindApp(){
+  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{tab=b.dataset.tab;render();});
+  const act=q=>document.querySelector(`[data-act="${q}"]`);
+  if(act("add"))act("add").onclick=()=>openSheet(null);
+  if(act("refresh"))act("refresh").onclick=poll;
+  if(act("leave"))act("leave").onclick=()=>{localStorage.removeItem("split-code");trip=null;code=null;tab="ledger";render();};
+  if(tab==="ledger")bindLedger();
+  if(tab==="members")bindMembers();
+  if(tab==="settings")bindSettings();
+}
+
+/* ----- 帳目 ----- */
+function ledgerHTML(){
+  if(!trip.expenses.length)
+    return `<div class="empty"><div class="empty-ic">🧾</div>還沒有任何帳目。<br>點右下角「記一筆」開始吧。</div>`;
+  const groups={};
+  trip.expenses.forEach(e=>{const d=e.date||"未分類";(groups[d]=groups[d]||[]).push(e);});
+  return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,items])=>`
+    <div><div class="day">${esc(d)}</div>
+    ${items.map(e=>{const c=catOf(e.category);return `
+      <button class="row" data-exp="${e.id}">
+        <span class="row-ic">${c.icon}</span>
+        <span class="row-mid">
+          <span class="row-desc">${esc(e.desc||c.label)}</span>
+          <span class="row-meta">${mName(e.payerId)} 付 · ${
+            e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
+            :e.splitType==="shares"?"按份數":"指定金額"}</span>
+        </span>
+        <span class="row-amt num">${CURRENCIES[e.currency].symbol} ${fmt(e.amount)}</span>
+      </button>`;}).join("")}</div>`).join("");
+}
+function bindLedger(){
+  document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=()=>{
+    openSheet(trip.expenses.find(x=>x.id===b.dataset.exp));
+  });
+}
+
+/* ----- 結算 ----- */
+function settleHTML(){
+  const {net,paid,spent}=computeBalances(trip);
+  const sym=CURRENCIES[trip.baseCurrency].symbol;
+  const tx=settle(Object.assign({},net));
+  return `
+  <div class="card">
+    <div class="receipt-top">結算建議（以${CURRENCIES[trip.baseCurrency].label}計）</div>
+    ${tx.length===0?`<div class="balanced">🎉 全部結清，沒有人欠錢！</div>`:
+      tx.map(t=>`<div class="tx">
+        <span class="tx-from">${mName(t.from)}</span>
+        <span class="tx-arrow">付給 →</span>
+        <span class="tx-to">${mName(t.to)}</span>
+        <span class="tx-amt num">${sym} ${fmt(t.amt)}</span></div>`).join("")}
+  </div>
+  <div class="card"><div class="card-title">每人明細</div>
+    ${trip.members.map(m=>{const n=net[m.id]||0;return `<div class="bal">
+      <span class="bal-name">${esc(m.name)}</span>
+      <span class="bal-nums">
+        <span class="bal-detail num">付 ${sym}${fmt(paid[m.id]||0)} · 用 ${sym}${fmt(spent[m.id]||0)}</span>
+        <span class="bal-net num ${n>=0?"pos":"neg"}">${n>=0?"應收 ":"應付 "}${sym}${fmt(Math.abs(n))}</span>
+      </span></div>`;}).join("")}
+  </div>`;
+}
+
+/* ----- 成員 ----- */
+function membersHTML(){
+  return `
+  <div class="card"><div class="card-title">新增成員</div>
+    <div class="add-row">
+      <input class="inp" id="m-name" placeholder="姓名" autocomplete="off" />
+      <button class="btn primary sm" data-m="add">新增</button>
+    </div></div>
+  <div class="card"><div class="card-title">成員（${trip.members.length}）</div>
+    ${trip.members.map(m=>{
+      const used=trip.expenses.some(e=>e.payerId===m.id||(e.participants||[]).includes(m.id)||(e.exact&&e.exact[m.id])||(e.shares&&e.shares[m.id]));
+      return `<div class="bal"><span class="bal-name">${esc(m.name)}</span>
+        ${used?"":`<button class="del" data-rm="${m.id}">移除</button>`}</div>`;
+    }).join("")}
+  </div>`;
+}
+function bindMembers(){
+  const add=document.querySelector('[data-m="add"]');
+  if(add)add.onclick=()=>{
+    const v=(document.getElementById("m-name").value||"").trim();
+    if(!v)return;
+    save(Object.assign({},trip,{members:[...trip.members,{id:uid(),name:v}]}));
+  };
+  document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{
+    save(Object.assign({},trip,{members:trip.members.filter(x=>x.id!==b.dataset.rm)}));
+  });
+}
+
+/* ----- 設定 ----- */
+function settingsHTML(){
+  return `
+  <div class="card"><div class="card-title">結算幣別</div>
+    <div class="seg">${Object.keys(CURRENCIES).map(c=>`
+      <button class="seg-btn ${trip.baseCurrency===c?"on":""}" data-base="${c}">${CURRENCIES[c].label}</button>`).join("")}</div>
+    <p class="hint">所有結算金額會換算成這個幣別顯示。</p>
+  </div>
+  <div class="card"><div class="card-title">匯率（1 外幣 = ? 台幣）</div>
+    ${["MYR","SGD"].map(c=>`<div class="rate-row"><span>1 ${CURRENCIES[c].label} =</span>
+      <input class="inp num" data-rate="${c}" inputmode="decimal" value="${trip.rates[c]}" />
+      <span>台幣</span></div>`).join("")}
+    <p class="hint">數字是參考即時匯率帶入的，可改成你刷卡的實際匯率。</p>
+  </div>
+  <div class="card"><div class="card-title">分享給同行的人</div>
+    <p class="hint">把這個網頁的連結傳給家人，請他們選「用代碼加入」，輸入代碼 <b>${esc(trip.code)}</b>，就能一起記同一本帳。</p>
+  </div>`;
+}
+function bindSettings(){
+  document.querySelectorAll("[data-base]").forEach(b=>b.onclick=()=>
+    save(Object.assign({},trip,{baseCurrency:b.dataset.base})));
+  document.querySelectorAll("[data-rate]").forEach(inp=>inp.onblur=()=>{
+    const v=parseFloat(inp.value);
+    if(v>0)save(Object.assign({},trip,{rates:Object.assign({},trip.rates,{[inp.dataset.rate]:v})}));
+  });
+}
+
+/* ====================== 記帳輸入表（sheet） ====================== */
+let form=null;
+function openSheet(editing){
+  sheetEditing=editing; sheetOpen=true;
+  const today=new Date().toISOString().slice(0,10);
+  form={
+    currency:editing?editing.currency:"MYR",
+    category:editing?editing.category:"food",
+    payerId:editing?editing.payerId:(trip.members[0]||{}).id,
+    splitType:editing?editing.splitType:"equal",
+    participants:editing?(editing.participants||[]).slice():trip.members.map(m=>m.id),
+  };
+  const c=document.getElementById("sheet");
+  c.innerHTML=sheetHTML(editing,today);
+  bindSheet(editing);
+}
+function closeSheet(){sheetOpen=false;sheetEditing=null;document.getElementById("sheet").innerHTML="";}
+
+function sheetHTML(editing,today){
+  return `<div class="sheet-wrap" id="sw"><div class="sheet" id="sb">
+    <div class="sheet-grip"></div>
+    <div class="sheet-h">${editing?"編輯帳目":"記一筆"}
+      ${editing?`<button class="del" data-s="delete">刪除</button>`:""}</div>
+    <div class="amt-box">
+      <div class="seg compact" id="cur-seg">${Object.keys(CURRENCIES).map(c=>`
+        <button class="seg-btn ${form.currency===c?"on":""}" data-cur="${c}">${CURRENCIES[c].symbol}</button>`).join("")}</div>
+      <input class="amt-inp" id="s-amt" inputmode="decimal" placeholder="0" value="${editing?editing.amount:""}" />
+    </div>
+    <input class="inp" id="s-desc" placeholder="項目（例如 螃蟹大餐）" value="${editing?esc(editing.desc):""}" />
+    <div class="cats" id="cat-grid">${CATEGORIES.map(c=>`
+      <button class="cat ${form.category===c.id?"on":""}" data-cat="${c.id}"><span>${c.icon}</span>${c.label}</button>`).join("")}</div>
+    <input class="inp" id="s-date" type="date" value="${editing?editing.date:today}" />
+    <label class="lbl">誰付的</label>
+    <div class="chips" id="payer-chips">${trip.members.map(m=>`
+      <button class="chip ${form.payerId===m.id?"on":""}" data-payer="${m.id}">${esc(m.name)}</button>`).join("")}</div>
+    <label class="lbl">怎麼分</label>
+    <div class="seg" id="split-seg">${[["equal","平均分"],["shares","按份數"],["exact","指定金額"]].map(([k,l])=>`
+      <button class="seg-btn ${form.splitType===k?"on":""}" data-split="${k}">${l}</button>`).join("")}</div>
+    <div id="split-area">${splitAreaHTML(editing)}</div>
+    <button class="btn primary big" data-s="save">${editing?"儲存修改":"加入帳目"}</button>
+  </div></div>`;
+}
+function splitAreaHTML(editing){
+  if(form.splitType==="equal"){
+    return `<div class="chips" id="part-chips">${trip.members.map(m=>`
+      <button class="chip ${form.participants.includes(m.id)?"on":""}" data-part="${m.id}">${esc(m.name)}</button>`).join("")}</div>`;
+  }
+  if(form.splitType==="shares"){
+    return `<div class="split-rows">${trip.members.map(m=>`<div class="split-row">
+      <span>${esc(m.name)}</span>
+      <input class="inp num sm" inputmode="decimal" data-share="${m.id}" placeholder="0" value="${editing&&editing.shares?(editing.shares[m.id]||""):""}" />
+      <span class="unit">份</span></div>`).join("")}</div>`;
+  }
+  return `<div class="split-rows">${trip.members.map(m=>`<div class="split-row">
+    <span>${esc(m.name)}</span>
+    <input class="inp num sm" inputmode="decimal" data-exact="${m.id}" placeholder="0" value="${editing&&editing.exact?(editing.exact[m.id]||""):""}" />
+    <span class="unit">${CURRENCIES[form.currency].symbol}</span></div>`).join("")}</div>`;
+}
+function bindSheet(editing){
+  document.getElementById("sw").onclick=e=>{if(e.target.id==="sw")closeSheet();};
+  // 幣別
+  document.querySelectorAll("[data-cur]").forEach(b=>b.onclick=()=>{
+    form.currency=b.dataset.cur;
+    document.querySelectorAll("[data-cur]").forEach(x=>x.classList.toggle("on",x.dataset.cur===form.currency));
+    if(form.splitType==="exact")document.getElementById("split-area").innerHTML=splitAreaHTML(editing),bindSplit(editing);
+  });
+  // 分類
+  document.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{
+    form.category=b.dataset.cat;
+    document.querySelectorAll("[data-cat]").forEach(x=>x.classList.toggle("on",x.dataset.cat===form.category));
+  });
+  // 付款人
+  document.querySelectorAll("[data-payer]").forEach(b=>b.onclick=()=>{
+    form.payerId=b.dataset.payer;
+    document.querySelectorAll("[data-payer]").forEach(x=>x.classList.toggle("on",x.dataset.payer===form.payerId));
+  });
+  // 分法
+  document.querySelectorAll("[data-split]").forEach(b=>b.onclick=()=>{
+    form.splitType=b.dataset.split;
+    document.querySelectorAll("[data-split]").forEach(x=>x.classList.toggle("on",x.dataset.split===form.splitType));
+    document.getElementById("split-area").innerHTML=splitAreaHTML(editing);
+    bindSplit(editing);
+  });
+  bindSplit(editing);
+  // 刪除 / 儲存
+  const del=document.querySelector('[data-s="delete"]');
+  if(del)del.onclick=()=>{save(Object.assign({},trip,{expenses:trip.expenses.filter(x=>x.id!==editing.id)}));closeSheet();};
+  document.querySelector('[data-s="save"]').onclick=()=>submitSheet(editing);
+}
+function bindSplit(){
+  document.querySelectorAll("[data-part]").forEach(b=>b.onclick=()=>{
+    const id=b.dataset.part;
+    if(form.participants.includes(id))form.participants=form.participants.filter(x=>x!==id);
+    else form.participants.push(id);
+    b.classList.toggle("on");
+  });
+}
+function submitSheet(editing){
+  const amt=parseFloat(document.getElementById("s-amt").value);
+  if(!(amt>0)||!form.payerId)return;
+  const shares={},exact={};
+  if(form.splitType==="shares")document.querySelectorAll("[data-share]").forEach(i=>shares[i.dataset.share]=i.value);
+  if(form.splitType==="exact")document.querySelectorAll("[data-exact]").forEach(i=>exact[i.dataset.exact]=i.value);
+  const exp={
+    id:editing?editing.id:uid(),
+    desc:(document.getElementById("s-desc").value||"").trim(),
+    amount:amt, currency:form.currency, category:form.category,
+    date:document.getElementById("s-date").value,
+    payerId:form.payerId, splitType:form.splitType,
+    participants:form.splitType==="equal"?form.participants.slice():[],
+    shares:form.splitType==="shares"?shares:{},
+    exact:form.splitType==="exact"?exact:{},
+  };
+  const exps=editing?trip.expenses.map(x=>x.id===exp.id?exp:x):[exp,...trip.expenses];
+  save(Object.assign({},trip,{expenses:exps}));
+  closeSheet();
+}
+
+/* --------------------------- 同步輪詢 --------------------------- */
+async function poll(){
+  if(!code||sheetOpen)return;        // 編輯中暫不覆蓋
+  try{
+    const remote=await apiLoad(code);
+    if(remote&&remote.updatedAt>(trip?trip.updatedAt:0)){trip=remote;render();}
+  }catch(e){}
+}
+setInterval(poll,6000);
+
+/* --------------------------- 啟動 ----------------------------- */
+(async function(){
+  const saved=localStorage.getItem("split-code");
+  if(saved&&API_URL.indexOf("貼上")<0){
+    try{const t=await apiLoad(saved);if(t){trip=t;code=saved;}}catch(e){}
+  }
+  render();
+})();
+</script>
+</body>
+</html>
