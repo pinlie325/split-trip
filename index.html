@@ -128,6 +128,11 @@ button{cursor:pointer;font-family:inherit}
 .split-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .none-note{background:#eef3f2;border:1px dashed var(--line);border-radius:12px;padding:13px;
   font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:8px}
+.part-head{display:flex;justify-content:space-between;align-items:center;margin:2px 2px 8px}
+.sub{font-size:14px;font-weight:700}
+.sub-tip{font-size:12px;color:var(--muted);font-weight:400}
+.per-person{margin:4px 2px 2px;font-size:13px;font-weight:700;color:var(--sea-d);min-height:18px}
+.fee-note{display:none;margin:8px 2px 2px;font-size:12px;font-weight:600;color:var(--amber)}
 .tag-none{display:inline-block;background:#eceff0;color:var(--muted);font-size:11px;
   padding:1px 7px;border-radius:8px;margin-left:5px;font-weight:600;vertical-align:middle}
 .row-none .row-amt{color:var(--muted)}
@@ -145,6 +150,9 @@ button{cursor:pointer;font-family:inherit}
 .cur-x.lock{background:transparent;color:var(--muted);font-size:14px}
 .cur-add{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr;gap:6px;margin:12px 0 0}
 .cur-add .inp{margin:0;padding:9px 8px;font-size:14px}
+.rate-inline{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:14px}
+.rate-inline .inp{margin:0;width:110px;text-align:right}
+select.inp{margin-top:4px;-webkit-appearance:none;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2 4l4 4 4-4' stroke='%2371807e' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 14px center}
 .setup{padding:40px 24px;max-width:480px;margin:0 auto;line-height:1.9}
 .setup code{background:#efe9dc;padding:2px 6px;border-radius:5px;font-size:13px}
 
@@ -189,6 +197,24 @@ const DEFAULT_CURRENCIES = [
   {code:"MYR",symbol:"RM",label:"馬幣"},
   {code:"SGD",symbol:"S$",label:"星幣"},
 ];
+// 常用幣別預設清單（匯率為約略值，僅供帶入，請依實際調整）
+const PRESET_CURRENCIES = [
+  {code:"JPY",symbol:"¥",label:"日圓",approx:0.21},
+  {code:"USD",symbol:"$",label:"美金",approx:32},
+  {code:"EUR",symbol:"€",label:"歐元",approx:35},
+  {code:"GBP",symbol:"£",label:"英鎊",approx:41},
+  {code:"KRW",symbol:"₩",label:"韓元",approx:0.024},
+  {code:"THB",symbol:"฿",label:"泰銖",approx:0.9},
+  {code:"HKD",symbol:"HK$",label:"港幣",approx:4.1},
+  {code:"CNY",symbol:"¥",label:"人民幣",approx:4.5},
+  {code:"VND",symbol:"₫",label:"越南盾",approx:0.0013},
+  {code:"PHP",symbol:"₱",label:"披索",approx:0.57},
+  {code:"IDR",symbol:"Rp",label:"印尼盾",approx:0.002},
+  {code:"MOP",symbol:"MOP$",label:"澳門幣",approx:4.0},
+  {code:"AUD",symbol:"A$",label:"澳幣",approx:21},
+  {code:"NZD",symbol:"NZ$",label:"紐幣",approx:19},
+  {code:"CAD",symbol:"C$",label:"加幣",approx:23},
+];
 // 幣別清單改為每個旅程可自訂；以下為輔助函式
 function clist(){ return (trip&&trip.currencies&&trip.currencies.length)?trip.currencies:DEFAULT_CURRENCIES; }
 function cinfo(code){ return clist().find(c=>c.code===code) || {code:code,symbol:code,label:code}; }
@@ -201,6 +227,7 @@ function normalizeTrip(t){
   t.rates=t.rates||{};
   t.currencies.forEach(c=>{ if(typeof t.rates[c.code]!=="number") t.rates[c.code]=(c.code==="TWD"?1:1); });
   if(!t.currencies.some(c=>c.code===t.baseCurrency)) t.baseCurrency=t.currencies[0].code;
+  if(typeof t.cardFee!=="number") t.cardFee=1.5;
   return t;
 }
 const CATEGORIES = [
@@ -241,8 +268,9 @@ async function apiSave(t){
 async function apiVerifyPin(pin){
   try{ const j=await api({action:"verifypin",pin}); return j&&j.ok; }catch(e){ return false; }
 }
-async function apiDelete(c){
-  const j=await api({action:"delete",code:c,pin:sessionPin});
+async function apiDelete(c,pin){
+  let token=""; try{ token=localStorage.getItem("owner:"+c)||""; }catch(e){}
+  const j=await api({action:"delete",code:c,token:token,pin:pin||""});
   return j&&j.ok;
 }
 
@@ -250,8 +278,10 @@ function newTrip(c,name,members){
   return {code:c,name:name||"我們的旅程",baseCurrency:"TWD",
     currencies:DEFAULT_CURRENCIES.map(x=>Object.assign({},x)),
     rates:{TWD:1,MYR:7.8,SGD:24.6},
+    cardFee:1.5,
     members:members.map(n=>({id:uid(),name:n})),expenses:[],updatedAt:Date.now()};
 }
+function isOwner(c){ try{ return !!localStorage.getItem("owner:"+c); }catch(e){ return false; } }
 
 async function save(next){
   next.updatedAt = Date.now();
@@ -283,12 +313,13 @@ function computeBalances(t){
   t.expenses.forEach(e=>{
     if(e.splitType==="none")return;        // 不計入分帳：完全跳過
     if(net[e.payerId]===undefined)return;
-    const v=toBase(e.amount,e.currency);
+    const factor=e.method==="card"?(1+(t.cardFee||0)/100):1;  // 刷卡含手續費
+    const v=toBase(e.amount*factor,e.currency);
     net[e.payerId]+=v; paid[e.payerId]+=v;
     const owes=shareMap(e);
     Object.entries(owes).forEach(([m,a])=>{
       if(net[m]===undefined)return;
-      const b=toBase(a,e.currency); net[m]-=b; spent[m]+=b;
+      const b=toBase(a*factor,e.currency); net[m]-=b; spent[m]+=b;
     });
   });
   return {net,paid,spent};
@@ -339,15 +370,15 @@ function gateHTML(){
         <span class="lbl" style="margin:0">我的旅程（${gateTrips.length}）</span>
         <button class="link-btn" data-g="manage">${manageMode?"✓ 完成":"🗑 管理"}</button>
       </div>
-      ${gateTrips.map((t,i)=>`<div class="trip-item ${manageMode?"managing":""}">
+      ${gateTrips.map((t,i)=>{const own=isOwner(t.code);return `<div class="trip-item ${manageMode?"managing":""}">
         <button class="ti-tap" data-open="${i}">
-          <span class="ti-main"><span class="ti-name">${esc(t.name)}</span>
-          <span class="ti-meta">${manageMode?`代碼 ${esc(t.code)} · `:""}${t.members} 人</span></span>
-          <span class="ti-go">${manageMode?"📋":"→"}</span>
+          <span class="ti-main"><span class="ti-name">${esc(t.name)}${own?` <span class="tag-own">我建立</span>`:""}</span>
+          <span class="ti-meta">${manageMode&&own?`代碼 ${esc(t.code)} · `:""}${t.members} 人</span></span>
+          <span class="ti-go">${manageMode?(own?"📋":""):"→"}</span>
         </button>
         ${manageMode?`<button class="ti-del" data-del="${i}">🗑 刪除</button>`:""}
-      </div>`).join("")}
-      <p class="hint" style="text-align:center;margin-top:4px">${manageMode?"點旅程可複製代碼":"點旅程需輸入代碼才能進入"}</p></div>`;
+      </div>`;}).join("")}
+      <p class="hint" style="text-align:center;margin-top:4px">${manageMode?"你建立的旅程可直接刪除；其他旅程需管理 PIN":"點旅程進入（你建立的免代碼）"}</p></div>`;
     inner=`
       <button class="btn primary" data-g="create">➕ 建立新旅程</button>
       <button class="btn ghost" data-g="join">🔑 用代碼加入</button>
@@ -386,35 +417,37 @@ function bindGate(){
   }
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=async()=>{
     const t=gateTrips[+b.dataset.open]; if(!t)return;
-    if(manageMode){ copyText(t.code); return; }   // 管理模式：點一下複製代碼
-    const input=prompt(`請輸入「${t.name}」的代碼以進入：`);
-    if(input===null)return;
-    if(input.trim().toUpperCase()!==String(t.code).toUpperCase()){alert("代碼不正確。");return;}
+    const own=isOwner(t.code);
+    if(manageMode){ if(own)copyText(t.code); return; }   // 管理模式：本機建立的點一下複製代碼
+    if(!own){
+      const input=prompt(`請輸入「${t.name}」的代碼以進入：`);
+      if(input===null)return;
+      if(input.trim().toUpperCase()!==String(t.code).toUpperCase()){alert("代碼不正確。");return;}
+    }
     const full=await apiLoad(t.code);
     if(full){trip=full;code=t.code;localStorage.setItem("split-code",t.code);render();}
     else alert("讀取失敗，請稍後再試。");
   });
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
     const t=gateTrips[+b.dataset.del]; if(!t)return;
-    if(!confirm(`確定要刪除旅程「${t.name}」（代碼 ${t.code}）嗎？\n此動作會把雲端的這份帳移到垃圾桶。`))return;
+    const own=isOwner(t.code);
+    if(!confirm(`確定要刪除旅程「${t.name}」嗎？\n此動作會把雲端的這份帳移到垃圾桶。`))return;
+    let pin=null;
+    if(!own){
+      pin=prompt("此旅程非本機建立，請輸入管理 PIN 才能刪除：");
+      if(pin===null)return;
+    }
     b.disabled=true; b.textContent="刪除中…";
-    const ok=await apiDelete(t.code);
-    if(ok){ gateTrips=gateTrips.filter(x=>x.code!==t.code); toast("已刪除"); render(); }
-    else { b.disabled=false; b.textContent="🗑 刪除"; alert("刪除失敗，請稍後再試。"); }
+    const ok=await apiDelete(t.code,pin);
+    if(ok){ try{localStorage.removeItem("owner:"+t.code);}catch(e){} gateTrips=gateTrips.filter(x=>x.code!==t.code); toast("已刪除"); render(); }
+    else { b.disabled=false; b.textContent="🗑 刪除"; alert(own?"刪除失敗，請稍後再試。":"PIN 不正確或刪除失敗。"); }
   });
   document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
     const g=b.dataset.g;
     if(g==="create"){gateMode="create";gateNames=["",""];manageMode=false;render();}
     else if(g==="join"){gateMode="join";gateErr="";manageMode=false;render();}
     else if(g==="home"){gateMode="home";gateTrips=null;manageMode=false;render();}
-    else if(g==="manage"){
-      if(manageMode){manageMode=false;sessionPin=null;render();return;}
-      const pin=prompt("請輸入管理 PIN 才能刪除旅程：");
-      if(pin===null)return;
-      const ok=await apiVerifyPin(pin);
-      if(ok){sessionPin=pin;manageMode=true;render();}
-      else alert("PIN 不正確。");
-    }
+    else if(g==="manage"){ manageMode=!manageMode; render(); }
     else if(g==="more"){readGateNames();gateNames.push("");render();}
     else if(g==="do-join"){
       const c=(document.getElementById("g-code").value||"").trim().toUpperCase();
@@ -429,8 +462,11 @@ function bindGate(){
       const m=gateNames.map(s=>s.trim()).filter(Boolean);
       if(m.length<2){gateErr="";return;}
       const c=Math.random().toString(36).slice(2,6).toUpperCase()+Math.random().toString(36).slice(2,4).toUpperCase();
+      const ownerToken=uid()+uid()+uid();
+      const t=newTrip(c,name,m); t.ownerToken=ownerToken;
+      try{ localStorage.setItem("owner:"+c, ownerToken); }catch(e){}
       code=c; localStorage.setItem("split-code",c);
-      await save(newTrip(c,name,m));
+      await save(t);
     }
   });
 }
@@ -494,7 +530,7 @@ function ledgerHTML(){
         <span class="row-ic">${c.icon}</span>
         <span class="row-mid">
           <span class="row-desc">${esc(e.desc||c.label)}${none?` <span class="tag-none">不分帳</span>`:""}</span>
-          <span class="row-meta">${mName(e.payerId)} 付 · ${
+          <span class="row-meta">${mName(e.payerId)} 付${e.method==="card"?" 💳":""} · ${
             none?"不計入分帳"
             :e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
             :e.splitType==="shares"?"按份數":"指定金額"}</span>
@@ -581,13 +617,35 @@ function settingsHTML(){
         : `<span class="cur-x lock" title="使用中或為結算幣別，無法刪除">🔒</span>`}
     </div>`).join("")}
     <p class="hint">匯率＝1 單位此幣別等於多少台幣（台幣本身填 1）。使用中或設為結算幣別的幣別不能刪除。</p>
-    <div class="cur-add">
-      <input class="inp" id="nc-code" placeholder="代碼 JPY" maxlength="6" />
-      <input class="inp" id="nc-sym" placeholder="符號 ¥" maxlength="4" />
-      <input class="inp" id="nc-label" placeholder="名稱 日圓" />
-      <input class="inp num" id="nc-rate" inputmode="decimal" placeholder="匯率" />
+    <div class="card-title" style="margin:14px 0 8px;font-size:14px">新增幣別</div>
+    <select class="inp" id="nc-preset">
+      <option value="">▾ 從常用幣別選擇…</option>
+      ${PRESET_CURRENCIES.filter(p=>!trip.currencies.some(c=>c.code===p.code))
+        .map(p=>`<option value="${p.code}">${esc(p.label)} ${esc(p.symbol)}（${p.code}）</option>`).join("")}
+      <option value="__custom">其他／自訂…</option>
+    </select>
+    <div id="nc-custom" style="display:none">
+      <div class="cur-add">
+        <input class="inp" id="nc-code" placeholder="代碼" maxlength="6" />
+        <input class="inp" id="nc-sym" placeholder="符號" maxlength="4" />
+        <input class="inp" id="nc-label" placeholder="名稱" />
+        <span></span>
+      </div>
     </div>
-    <button class="btn primary sm" data-curadd style="width:100%;margin-top:4px">➕ 新增幣別</button>
+    <div class="rate-inline" id="nc-rate-wrap" style="display:none">
+      <span>匯率：1 單位 =</span>
+      <input class="inp num" id="nc-rate" inputmode="decimal" placeholder="?" />
+      <span>台幣</span>
+    </div>
+    <button class="btn primary sm" data-curadd style="width:100%;margin-top:8px">➕ 新增幣別</button>
+  </div>
+  <div class="card"><div class="card-title">刷卡手續費</div>
+    <div class="rate-inline">
+      <span>刷卡加收</span>
+      <input class="inp num" id="card-fee" inputmode="decimal" value="${trip.cardFee}" />
+      <span>％ 手續費</span>
+    </div>
+    <p class="hint">記帳選「刷卡」時，金額會自動加上這個百分比一起分攤（現金則照原價）。</p>
   </div>
   <div class="card"><div class="card-title">分享給同行的人</div>
     <p class="hint" style="margin-top:0">把代碼或網頁連結傳給家人，他們選「🔑 用代碼加入」輸入代碼，就能一起記同一本帳。</p>
@@ -603,6 +661,8 @@ function settingsHTML(){
 function bindSettings(){
   document.querySelectorAll("[data-base]").forEach(b=>b.onclick=()=>
     save(Object.assign({},trip,{baseCurrency:b.dataset.base})));
+  const cf=document.getElementById("card-fee");
+  if(cf)cf.onblur=()=>{ const v=parseFloat(cf.value); if(v>=0)save(Object.assign({},trip,{cardFee:v})); };
   // 編輯幣別欄位（符號/名稱/匯率）
   document.querySelectorAll(".cur-f").forEach(inp=>inp.onblur=()=>{
     const i=+inp.dataset.curi, f=inp.dataset.f;
@@ -620,16 +680,36 @@ function bindSettings(){
     const rates=Object.assign({},trip.rates); delete rates[c.code];
     save(Object.assign({},trip,{currencies:curs,rates:rates}));
   });
+  // 幣別選擇器：選常用 → 帶入並顯示匯率欄；選自訂 → 顯示手動欄位
+  const sel=document.getElementById("nc-preset");
+  if(sel)sel.onchange=()=>{
+    const v=sel.value;
+    const custom=document.getElementById("nc-custom");
+    const rateWrap=document.getElementById("nc-rate-wrap");
+    const rateInp=document.getElementById("nc-rate");
+    if(v==="__custom"){ custom.style.display="block"; rateWrap.style.display="flex"; rateInp.value=""; }
+    else if(v){ custom.style.display="none"; rateWrap.style.display="flex";
+      const p=PRESET_CURRENCIES.find(x=>x.code===v); rateInp.value=p?p.approx:""; }
+    else { custom.style.display="none"; rateWrap.style.display="none"; }
+  };
   // 新增幣別
   const add=document.querySelector("[data-curadd]");
   if(add)add.onclick=()=>{
-    const code=(document.getElementById("nc-code").value||"").trim().toUpperCase();
-    const sym=(document.getElementById("nc-sym").value||"").trim();
-    const label=(document.getElementById("nc-label").value||"").trim();
+    const v=sel?sel.value:"";
+    let code,sym,label;
+    if(v&&v!=="__custom"){
+      const p=PRESET_CURRENCIES.find(x=>x.code===v);
+      if(!p){alert("請先選擇幣別。");return;}
+      code=p.code; sym=p.symbol; label=p.label;
+    }else if(v==="__custom"){
+      code=(document.getElementById("nc-code").value||"").trim().toUpperCase();
+      sym=(document.getElementById("nc-sym").value||"").trim();
+      label=(document.getElementById("nc-label").value||"").trim();
+      if(!code||!sym||!label){alert("請填代碼、符號、名稱。");return;}
+    }else{ alert("請先從清單選擇要新增的幣別。"); return; }
     const rate=parseFloat(document.getElementById("nc-rate").value);
-    if(!code||!sym||!label){alert("請填代碼、符號、名稱。");return;}
     if(!(rate>0)){alert("請填正確的匯率。");return;}
-    if(trip.currencies.some(c=>c.code===code)){alert("這個代碼已存在。");return;}
+    if(trip.currencies.some(c=>c.code===code)){alert("這個幣別已存在。");return;}
     const curs=[...trip.currencies.map(x=>Object.assign({},x)),{code,symbol:sym,label}];
     const rates=Object.assign({},trip.rates,{[code]:rate});
     save(Object.assign({},trip,{currencies:curs,rates:rates}));
@@ -674,6 +754,7 @@ function openSheet(editing){
     category:editing?editing.category:"food",
     payerId:editing?editing.payerId:(trip.members[0]||{}).id,
     splitType:editing?editing.splitType:"equal",
+    method:editing?(editing.method||"cash"):"cash",
     participants:editing?(editing.participants||[]).slice():trip.members.map(m=>m.id),
   };
   const c=document.getElementById("sheet");
@@ -699,6 +780,12 @@ function sheetHTML(editing,today){
     <label class="lbl">誰付的</label>
     <div class="chips" id="payer-chips">${trip.members.map(m=>`
       <button class="chip ${form.payerId===m.id?"on":""}" data-payer="${m.id}">${esc(m.name)}</button>`).join("")}</div>
+    <label class="lbl">付款方式</label>
+    <div class="seg" id="method-seg">
+      <button class="seg-btn ${form.method==="cash"?"on":""}" data-method="cash">💵 現金</button>
+      <button class="seg-btn ${form.method==="card"?"on":""}" data-method="card">💳 刷卡</button>
+    </div>
+    <div class="fee-note" id="fee-note"></div>
     <label class="lbl">怎麼分</label>
     <div class="seg seg-wrap" id="split-seg">${[["equal","平均分"],["shares","按份數"],["exact","指定金額"],["none","不分帳"]].map(([k,l])=>`
       <button class="seg-btn ${form.splitType===k?"on":""}" data-split="${k}">${l}</button>`).join("")}</div>
@@ -711,27 +798,67 @@ function splitAreaHTML(editing){
     return `<div class="none-note">此筆只記錄，不分給任何人、不列入結算與總支出（例如個人自費）。</div>`;
   }
   if(form.splitType==="equal"){
-    return `<div class="chips" id="part-chips">${trip.members.map(m=>`
-      <button class="chip ${form.participants.includes(m.id)?"on":""}" data-part="${m.id}">${esc(m.name)}</button>`).join("")}</div>`;
+    const all=form.participants.length===trip.members.length;
+    return `
+    <div class="part-head">
+      <span class="sub">分給誰<span class="sub-tip"> · 點名字加入或移除</span></span>
+      <button class="link-btn" data-alltoggle>${all?"全不選":"全選"}</button>
+    </div>
+    <div class="chips" id="part-chips">${trip.members.map(m=>{const on=form.participants.includes(m.id);return `
+      <button class="chip ${on?"on":""}" data-part="${m.id}">${on?"✓ ":""}${esc(m.name)}</button>`;}).join("")}</div>
+    <div class="per-person" id="per-person"></div>`;
   }
   if(form.splitType==="shares"){
-    return `<div class="split-rows">${trip.members.map(m=>`<div class="split-row">
+    return `<p class="sub-tip" style="margin:0 2px 10px">份數＝照比例分攤。例如某人算 2 份、其他人各 1 份，就按 2：1 分。一般情況用「平均分」就好。</p>
+    <div class="split-rows">${trip.members.map(m=>`<div class="split-row">
       <span>${esc(m.name)}</span>
       <input class="inp num sm" inputmode="decimal" data-share="${m.id}" placeholder="0" value="${editing&&editing.shares?(editing.shares[m.id]||""):""}" />
       <span class="unit">份</span></div>`).join("")}</div>`;
   }
-  return `<div class="split-rows">${trip.members.map(m=>`<div class="split-row">
+  return `<p class="sub-tip" style="margin:0 2px 10px">直接填每個人各自要付多少（單位：${csym(form.currency)}）。</p>
+  <div class="split-rows">${trip.members.map(m=>`<div class="split-row">
     <span>${esc(m.name)}</span>
     <input class="inp num sm" inputmode="decimal" data-exact="${m.id}" placeholder="0" value="${editing&&editing.exact?(editing.exact[m.id]||""):""}" />
     <span class="unit">${csym(form.currency)}</span></div>`).join("")}</div>`;
 }
+function feeFactorForm(){ return form.method==="card"?(1+(trip.cardFee||0)/100):1; }
+function updatePerPerson(){
+  const el=document.getElementById("per-person"); if(!el)return;
+  const amtEl=document.getElementById("s-amt");
+  const amt=(parseFloat(amtEl?amtEl.value:"")||0)*feeFactorForm();
+  const n=form.participants.length;
+  if(form.splitType==="equal"&&amt>0&&n>0)
+    el.textContent=`${n} 人均分，每人約 ${csym(form.currency)} ${fmt(amt/n)}`;
+  else el.textContent="";
+}
+function updateFeeNote(){
+  const el=document.getElementById("fee-note"); if(!el)return;
+  const amtEl=document.getElementById("s-amt");
+  const base=parseFloat(amtEl?amtEl.value:"")||0;
+  if(form.method==="card"&&(trip.cardFee||0)>0){
+    const eff=base*(1+(trip.cardFee||0)/100);
+    el.textContent=base>0
+      ? `含 ${trip.cardFee}% 手續費，實際分攤 ${csym(form.currency)} ${fmt(eff)}`
+      : `刷卡將加收 ${trip.cardFee}% 手續費一起分攤`;
+    el.style.display="block";
+  }else{ el.textContent=""; el.style.display="none"; }
+}
 function bindSheet(editing){
   document.getElementById("sw").onclick=e=>{if(e.target.id==="sw")closeSheet();};
+  const amtEl=document.getElementById("s-amt");
+  if(amtEl)amtEl.oninput=()=>{updatePerPerson();updateFeeNote();};
+  // 付款方式
+  document.querySelectorAll("[data-method]").forEach(b=>b.onclick=()=>{
+    form.method=b.dataset.method;
+    document.querySelectorAll("[data-method]").forEach(x=>x.classList.toggle("on",x.dataset.method===form.method));
+    updateFeeNote(); updatePerPerson();
+  });
   // 幣別
   document.querySelectorAll("[data-cur]").forEach(b=>b.onclick=()=>{
     form.currency=b.dataset.cur;
     document.querySelectorAll("[data-cur]").forEach(x=>x.classList.toggle("on",x.dataset.cur===form.currency));
-    if(form.splitType==="exact")document.getElementById("split-area").innerHTML=splitAreaHTML(editing),bindSplit(editing);
+    if(form.splitType==="exact"){document.getElementById("split-area").innerHTML=splitAreaHTML(editing);bindSplit(editing);}
+    updatePerPerson();
   });
   // 分類
   document.querySelectorAll("[data-cat]").forEach(b=>b.onclick=()=>{
@@ -751,18 +878,28 @@ function bindSheet(editing){
     bindSplit(editing);
   });
   bindSplit(editing);
+  updateFeeNote();
   // 刪除 / 儲存
   const del=document.querySelector('[data-s="delete"]');
   if(del)del.onclick=()=>{save(Object.assign({},trip,{expenses:trip.expenses.filter(x=>x.id!==editing.id)}));closeSheet();};
   document.querySelector('[data-s="save"]').onclick=()=>submitSheet(editing);
 }
-function bindSplit(){
+function bindSplit(editing){
   document.querySelectorAll("[data-part]").forEach(b=>b.onclick=()=>{
     const id=b.dataset.part;
     if(form.participants.includes(id))form.participants=form.participants.filter(x=>x!==id);
     else form.participants.push(id);
-    b.classList.toggle("on");
+    document.getElementById("split-area").innerHTML=splitAreaHTML(editing);
+    bindSplit(editing);
   });
+  const at=document.querySelector("[data-alltoggle]");
+  if(at)at.onclick=()=>{
+    const all=form.participants.length===trip.members.length;
+    form.participants=all?[]:trip.members.map(m=>m.id);
+    document.getElementById("split-area").innerHTML=splitAreaHTML(editing);
+    bindSplit(editing);
+  };
+  updatePerPerson();
 }
 function submitSheet(editing){
   const amt=parseFloat(document.getElementById("s-amt").value);
@@ -775,7 +912,7 @@ function submitSheet(editing){
     desc:(document.getElementById("s-desc").value||"").trim(),
     amount:amt, currency:form.currency, category:form.category,
     date:document.getElementById("s-date").value,
-    payerId:form.payerId, splitType:form.splitType,
+    payerId:form.payerId, splitType:form.splitType, method:form.method,
     participants:form.splitType==="equal"?form.participants.slice():[],
     shares:form.splitType==="shares"?shares:{},
     exact:form.splitType==="exact"?exact:{},
