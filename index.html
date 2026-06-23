@@ -130,16 +130,32 @@ button{cursor:pointer;font-family:inherit}
 .unit{color:var(--muted);font-size:13px}
 .rate-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px}
 .rate-row .inp{margin:0;width:100px;text-align:right}
+.seg-wrap{flex-wrap:wrap}
+.seg-wrap .seg-btn{flex:1 1 28%;min-width:70px}
+.cur-head{display:grid;grid-template-columns:1fr 1.3fr 1fr 32px;gap:6px;font-size:11px;color:var(--muted);margin-bottom:6px;padding:0 2px}
+.cur-row{display:grid;grid-template-columns:1fr 1.3fr 1fr 32px;gap:6px;align-items:center;margin-bottom:8px}
+.cur-f{margin:0;padding:9px 8px;font-size:14px}
+.cur-x{border:none;background:#fdeceb;color:var(--coral);border-radius:9px;height:38px;font-weight:700;font-size:13px}
+.cur-x.lock{background:transparent;color:var(--muted);font-size:14px}
+.cur-add{display:grid;grid-template-columns:1fr 1fr 1.3fr 1fr;gap:6px;margin:12px 0 0}
+.cur-add .inp{margin:0;padding:9px 8px;font-size:14px}
 .setup{padding:40px 24px;max-width:480px;margin:0 auto;line-height:1.9}
 .setup code{background:#efe9dc;padding:2px 6px;border-radius:5px;font-size:13px}
 
 .trip-list{margin-top:18px}
-.trip-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;
-  border:1.5px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:9px}
+.list-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.link-btn{background:none;border:none;color:var(--sea);font-weight:700;font-size:14px;padding:4px}
+.link-btn.center{display:block;width:100%;text-align:center;color:var(--muted)}
+.trip-item{display:flex;align-items:stretch;gap:8px;margin-bottom:9px}
+.ti-tap{flex:1;display:flex;align-items:center;gap:10px;text-align:left;background:#fff;
+  border:1.5px solid var(--line);border-radius:14px;padding:13px 15px}
+.ti-tap:disabled{opacity:1}
 .ti-main{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
 .ti-name{font-weight:700;font-size:15px}
 .ti-meta{font-size:12px;color:var(--muted)}
 .ti-go{color:var(--sea);font-weight:800;font-size:18px}
+.ti-del{flex:0 0 auto;background:#fdeceb;border:1.5px solid #f3c3c0;color:var(--coral);
+  border-radius:14px;padding:0 14px;font-weight:700;font-size:13px}
 
 .code-box{background:#eaf4f3;border:1.5px dashed var(--sea);border-radius:12px;
   text-align:center;padding:14px;margin:4px 0 12px}
@@ -162,11 +178,25 @@ button{cursor:pointer;font-family:inherit}
 const API_URL = 'https://script.google.com/macros/s/AKfycbxPdC5fAc5SLezN863VfJm7Ab5RsJTDmyxvBma-TlZ3pAS9TCMI5GBBPiHJ-LSObWWK/exec';
 
 /* ---------------------------- 常數 ---------------------------- */
-const CURRENCIES = {
-  TWD:{symbol:"NT$",label:"台幣"},
-  MYR:{symbol:"RM",label:"馬幣"},
-  SGD:{symbol:"S$",label:"星幣"},
-};
+const DEFAULT_CURRENCIES = [
+  {code:"TWD",symbol:"NT$",label:"台幣"},
+  {code:"MYR",symbol:"RM",label:"馬幣"},
+  {code:"SGD",symbol:"S$",label:"星幣"},
+];
+// 幣別清單改為每個旅程可自訂；以下為輔助函式
+function clist(){ return (trip&&trip.currencies&&trip.currencies.length)?trip.currencies:DEFAULT_CURRENCIES; }
+function cinfo(code){ return clist().find(c=>c.code===code) || {code:code,symbol:code,label:code}; }
+function csym(code){ return cinfo(code).symbol; }
+function clabel(code){ return cinfo(code).label; }
+function defaultCur(){ const l=clist(); return (l.find(c=>c.code==="MYR")||l[0]||{code:"TWD"}).code; }
+function normalizeTrip(t){
+  if(!t)return t;
+  if(!t.currencies||!t.currencies.length) t.currencies=DEFAULT_CURRENCIES.map(c=>Object.assign({},c));
+  t.rates=t.rates||{};
+  t.currencies.forEach(c=>{ if(typeof t.rates[c.code]!=="number") t.rates[c.code]=(c.code==="TWD"?1:1); });
+  if(!t.currencies.some(c=>c.code===t.baseCurrency)) t.baseCurrency=t.currencies[0].code;
+  return t;
+}
 const CATEGORIES = [
   {id:"food",label:"餐飲",icon:"🍜"},
   {id:"stay",label:"住宿",icon:"🏨"},
@@ -183,28 +213,36 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&
 /* ---------------------------- 狀態 ---------------------------- */
 let trip=null, code=null, tab="ledger";
 let sheetEditing=null, sheetOpen=false;
-let gateMode="home", gateNames=["",""], gateErr="", gateTrips=null;
+let gateMode="home", gateNames=["",""], gateErr="", gateTrips=null, manageMode=false;
+let sessionPin=null;
 
 /* --------------------------- API 層 --------------------------- */
-async function apiLoad(c){
-  const r = await fetch(API_URL + "?code=" + encodeURIComponent(c));
-  const j = await r.json();
-  return j.trip;
+async function api(payload){
+  const r=await fetch(API_URL,{method:"POST",body:JSON.stringify(payload)});
+  return r.json();
 }
 async function apiList(){
-  const r = await fetch(API_URL + "?action=list");
-  const j = await r.json();
-  return j.trips || [];
+  const j=await api({action:"list"});
+  return (j&&j.trips)||[];
+}
+async function apiLoad(c){
+  const j=await api({action:"load",code:c});
+  return j?normalizeTrip(j.trip):null;
 }
 async function apiSave(t){
-  // text/plain body 屬於 CORS 簡單請求，可避開預檢問題
-  try{
-    await fetch(API_URL,{method:"POST",body:JSON.stringify(t)});
-  }catch(e){ /* 寫入仍會送達伺服器，下一次輪詢會校正 */ }
+  try{ await api({action:"save",trip:t}); }catch(e){}
+}
+async function apiVerifyPin(pin){
+  try{ const j=await api({action:"verifypin",pin}); return j&&j.ok; }catch(e){ return false; }
+}
+async function apiDelete(c){
+  const j=await api({action:"delete",code:c,pin:sessionPin});
+  return j&&j.ok;
 }
 
 function newTrip(c,name,members){
   return {code:c,name:name||"我們的旅程",baseCurrency:"TWD",
+    currencies:DEFAULT_CURRENCIES.map(x=>Object.assign({},x)),
     rates:{TWD:1,MYR:7.8,SGD:24.6},
     members:members.map(n=>({id:uid(),name:n})),expenses:[],updatedAt:Date.now()};
 }
@@ -289,11 +327,20 @@ function gateHTML(){
     let listBlock;
     if(gateTrips===null)listBlock=`<p class="hint" style="text-align:center">讀取旅程中…</p>`;
     else if(gateTrips.length===0)listBlock=`<p class="hint" style="text-align:center">目前還沒有任何旅程。</p>`;
-    else listBlock=`<div class="trip-list"><div class="lbl">我的旅程（${gateTrips.length}）</div>
-      ${gateTrips.map(t=>`<button class="trip-item" data-open="${esc(t.code)}">
-        <span class="ti-main"><span class="ti-name">${esc(t.name)}</span>
-        <span class="ti-meta">代碼 ${esc(t.code)} · ${t.members} 人</span></span>
-        <span class="ti-go">→</span></button>`).join("")}</div>`;
+    else listBlock=`<div class="trip-list">
+      <div class="list-head">
+        <span class="lbl" style="margin:0">我的旅程（${gateTrips.length}）</span>
+        <button class="link-btn" data-g="manage">${manageMode?"✓ 完成":"🗑 管理"}</button>
+      </div>
+      ${gateTrips.map((t,i)=>`<div class="trip-item ${manageMode?"managing":""}">
+        <button class="ti-tap" data-open="${i}">
+          <span class="ti-main"><span class="ti-name">${esc(t.name)}</span>
+          <span class="ti-meta">${manageMode?`代碼 ${esc(t.code)} · `:""}${t.members} 人</span></span>
+          <span class="ti-go">${manageMode?"📋":"→"}</span>
+        </button>
+        ${manageMode?`<button class="ti-del" data-del="${i}">🗑 刪除</button>`:""}
+      </div>`).join("")}
+      <p class="hint" style="text-align:center;margin-top:4px">${manageMode?"點旅程可複製代碼":"點旅程需輸入代碼才能進入"}</p></div>`;
     inner=`
       <button class="btn primary" data-g="create">➕ 建立新旅程</button>
       <button class="btn ghost" data-g="join">🔑 用代碼加入</button>
@@ -331,15 +378,36 @@ function bindGate(){
     apiList().then(ts=>{gateTrips=ts;if(!trip)render();}).catch(()=>{gateTrips=[];if(!trip)render();});
   }
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=async()=>{
-    const c=b.dataset.open;
-    const t=await apiLoad(c);
-    if(t){trip=t;code=c;localStorage.setItem("split-code",c);render();}
+    const t=gateTrips[+b.dataset.open]; if(!t)return;
+    if(manageMode){ copyText(t.code); return; }   // 管理模式：點一下複製代碼
+    const input=prompt(`請輸入「${t.name}」的代碼以進入：`);
+    if(input===null)return;
+    if(input.trim().toUpperCase()!==String(t.code).toUpperCase()){alert("代碼不正確。");return;}
+    const full=await apiLoad(t.code);
+    if(full){trip=full;code=t.code;localStorage.setItem("split-code",t.code);render();}
+    else alert("讀取失敗，請稍後再試。");
+  });
+  document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
+    const t=gateTrips[+b.dataset.del]; if(!t)return;
+    if(!confirm(`確定要刪除旅程「${t.name}」（代碼 ${t.code}）嗎？\n此動作會把雲端的這份帳移到垃圾桶。`))return;
+    b.disabled=true; b.textContent="刪除中…";
+    const ok=await apiDelete(t.code);
+    if(ok){ gateTrips=gateTrips.filter(x=>x.code!==t.code); toast("已刪除"); render(); }
+    else { b.disabled=false; b.textContent="🗑 刪除"; alert("刪除失敗，請稍後再試。"); }
   });
   document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
     const g=b.dataset.g;
-    if(g==="create"){gateMode="create";gateNames=["",""];render();}
-    else if(g==="join"){gateMode="join";gateErr="";render();}
-    else if(g==="home"){gateMode="home";gateTrips=null;render();}
+    if(g==="create"){gateMode="create";gateNames=["",""];manageMode=false;render();}
+    else if(g==="join"){gateMode="join";gateErr="";manageMode=false;render();}
+    else if(g==="home"){gateMode="home";gateTrips=null;manageMode=false;render();}
+    else if(g==="manage"){
+      if(manageMode){manageMode=false;sessionPin=null;render();return;}
+      const pin=prompt("請輸入管理 PIN 才能刪除旅程：");
+      if(pin===null)return;
+      const ok=await apiVerifyPin(pin);
+      if(ok){sessionPin=pin;manageMode=true;render();}
+      else alert("PIN 不正確。");
+    }
     else if(g==="more"){readGateNames();gateNames.push("");render();}
     else if(g==="do-join"){
       const c=(document.getElementById("g-code").value||"").trim().toUpperCase();
@@ -382,7 +450,7 @@ function appHTML(){
         </div>
       </div>
       <div class="hdr-total"><span>總支出</span>
-        <span class="num">${CURRENCIES[trip.baseCurrency].symbol} ${fmt(total)}</span></div>
+        <span class="num">${csym(trip.baseCurrency)} ${fmt(total)}</span></div>
     </header>
     <main class="body">${view}</main>
     ${tab==="ledger"?`<button class="fab" data-act="add">＋ 記一筆</button>`:""}
@@ -423,7 +491,7 @@ function ledgerHTML(){
             e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
             :e.splitType==="shares"?"按份數":"指定金額"}</span>
         </span>
-        <span class="row-amt num">${CURRENCIES[e.currency].symbol} ${fmt(e.amount)}</span>
+        <span class="row-amt num">${csym(e.currency)} ${fmt(e.amount)}</span>
       </button>`;}).join("")}</div>`).join("");
 }
 function bindLedger(){
@@ -435,11 +503,11 @@ function bindLedger(){
 /* ----- 結算 ----- */
 function settleHTML(){
   const {net,paid,spent}=computeBalances(trip);
-  const sym=CURRENCIES[trip.baseCurrency].symbol;
+  const sym=csym(trip.baseCurrency);
   const tx=settle(Object.assign({},net));
   return `
   <div class="card">
-    <div class="receipt-top">結算建議（以${CURRENCIES[trip.baseCurrency].label}計）</div>
+    <div class="receipt-top">結算建議（以${clabel(trip.baseCurrency)}計）</div>
     ${tx.length===0?`<div class="balanced">🎉 全部結清，沒有人欠錢！</div>`:
       tx.map(t=>`<div class="tx">
         <span class="tx-from">${mName(t.from)}</span>
@@ -487,17 +555,31 @@ function bindMembers(){
 
 /* ----- 設定 ----- */
 function settingsHTML(){
+  const inUse=code=>trip.expenses.some(e=>e.currency===code);
   return `
   <div class="card"><div class="card-title">結算幣別</div>
-    <div class="seg">${Object.keys(CURRENCIES).map(c=>`
-      <button class="seg-btn ${trip.baseCurrency===c?"on":""}" data-base="${c}">${CURRENCIES[c].label}</button>`).join("")}</div>
+    <div class="seg seg-wrap">${clist().map(c=>`
+      <button class="seg-btn ${trip.baseCurrency===c.code?"on":""}" data-base="${c.code}">${esc(c.label)}</button>`).join("")}</div>
     <p class="hint">所有結算金額會換算成這個幣別顯示。</p>
   </div>
-  <div class="card"><div class="card-title">匯率（1 外幣 = ? 台幣）</div>
-    ${["MYR","SGD"].map(c=>`<div class="rate-row"><span>1 ${CURRENCIES[c].label} =</span>
-      <input class="inp num" data-rate="${c}" inputmode="decimal" value="${trip.rates[c]}" />
-      <span>台幣</span></div>`).join("")}
-    <p class="hint">數字是參考即時匯率帶入的，可改成你刷卡的實際匯率。</p>
+  <div class="card"><div class="card-title">幣別與匯率</div>
+    <div class="cur-head"><span>符號</span><span>名稱</span><span>匯率(對台幣)</span><span></span></div>
+    ${clist().map((c,i)=>`<div class="cur-row">
+      <input class="inp cur-f" data-curi="${i}" data-f="symbol" value="${esc(c.symbol)}" />
+      <input class="inp cur-f" data-curi="${i}" data-f="label" value="${esc(c.label)}" />
+      <input class="inp num cur-f" data-curi="${i}" data-f="rate" inputmode="decimal" value="${trip.rates[c.code]||1}" />
+      ${(trip.baseCurrency!==c.code && !inUse(c.code) && clist().length>1)
+        ? `<button class="cur-x" data-curdel="${i}" title="刪除">✕</button>`
+        : `<span class="cur-x lock" title="使用中或為結算幣別，無法刪除">🔒</span>`}
+    </div>`).join("")}
+    <p class="hint">匯率＝1 單位此幣別等於多少台幣（台幣本身填 1）。使用中或設為結算幣別的幣別不能刪除。</p>
+    <div class="cur-add">
+      <input class="inp" id="nc-code" placeholder="代碼 JPY" maxlength="6" />
+      <input class="inp" id="nc-sym" placeholder="符號 ¥" maxlength="4" />
+      <input class="inp" id="nc-label" placeholder="名稱 日圓" />
+      <input class="inp num" id="nc-rate" inputmode="decimal" placeholder="匯率" />
+    </div>
+    <button class="btn primary sm" data-curadd style="width:100%;margin-top:4px">➕ 新增幣別</button>
   </div>
   <div class="card"><div class="card-title">分享給同行的人</div>
     <p class="hint" style="margin-top:0">把代碼或網頁連結傳給家人，他們選「🔑 用代碼加入」輸入代碼，就能一起記同一本帳。</p>
@@ -513,10 +595,37 @@ function settingsHTML(){
 function bindSettings(){
   document.querySelectorAll("[data-base]").forEach(b=>b.onclick=()=>
     save(Object.assign({},trip,{baseCurrency:b.dataset.base})));
-  document.querySelectorAll("[data-rate]").forEach(inp=>inp.onblur=()=>{
-    const v=parseFloat(inp.value);
-    if(v>0)save(Object.assign({},trip,{rates:Object.assign({},trip.rates,{[inp.dataset.rate]:v})}));
+  // 編輯幣別欄位（符號/名稱/匯率）
+  document.querySelectorAll(".cur-f").forEach(inp=>inp.onblur=()=>{
+    const i=+inp.dataset.curi, f=inp.dataset.f;
+    const curs=trip.currencies.map(x=>Object.assign({},x));
+    const rates=Object.assign({},trip.rates);
+    if(f==="rate"){ const v=parseFloat(inp.value); if(v>0)rates[curs[i].code]=v; else return; }
+    else { const v=inp.value.trim(); if(!v)return; curs[i][f]=v; }
+    save(Object.assign({},trip,{currencies:curs,rates:rates}));
   });
+  // 刪除幣別
+  document.querySelectorAll("[data-curdel]").forEach(b=>b.onclick=()=>{
+    const i=+b.dataset.curdel; const c=trip.currencies[i];
+    if(!confirm(`刪除幣別「${c.label}」？`))return;
+    const curs=trip.currencies.filter((_,idx)=>idx!==i);
+    const rates=Object.assign({},trip.rates); delete rates[c.code];
+    save(Object.assign({},trip,{currencies:curs,rates:rates}));
+  });
+  // 新增幣別
+  const add=document.querySelector("[data-curadd]");
+  if(add)add.onclick=()=>{
+    const code=(document.getElementById("nc-code").value||"").trim().toUpperCase();
+    const sym=(document.getElementById("nc-sym").value||"").trim();
+    const label=(document.getElementById("nc-label").value||"").trim();
+    const rate=parseFloat(document.getElementById("nc-rate").value);
+    if(!code||!sym||!label){alert("請填代碼、符號、名稱。");return;}
+    if(!(rate>0)){alert("請填正確的匯率。");return;}
+    if(trip.currencies.some(c=>c.code===code)){alert("這個代碼已存在。");return;}
+    const curs=[...trip.currencies.map(x=>Object.assign({},x)),{code,symbol:sym,label}];
+    const rates=Object.assign({},trip.rates,{[code]:rate});
+    save(Object.assign({},trip,{currencies:curs,rates:rates}));
+  };
   document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
     const url=location.href.split("#")[0];
     let text=trip.code;
@@ -553,7 +662,7 @@ function openSheet(editing){
   sheetEditing=editing; sheetOpen=true;
   const today=new Date().toISOString().slice(0,10);
   form={
-    currency:editing?editing.currency:"MYR",
+    currency:editing?editing.currency:defaultCur(),
     category:editing?editing.category:"food",
     payerId:editing?editing.payerId:(trip.members[0]||{}).id,
     splitType:editing?editing.splitType:"equal",
@@ -571,8 +680,8 @@ function sheetHTML(editing,today){
     <div class="sheet-h">${editing?"編輯帳目":"記一筆"}
       ${editing?`<button class="del" data-s="delete">刪除</button>`:""}</div>
     <div class="amt-box">
-      <div class="seg compact" id="cur-seg">${Object.keys(CURRENCIES).map(c=>`
-        <button class="seg-btn ${form.currency===c?"on":""}" data-cur="${c}">${CURRENCIES[c].symbol}</button>`).join("")}</div>
+      <div class="seg compact" id="cur-seg">${clist().map(c=>`
+        <button class="seg-btn ${form.currency===c.code?"on":""}" data-cur="${c.code}">${esc(c.symbol)}</button>`).join("")}</div>
       <input class="amt-inp" id="s-amt" inputmode="decimal" placeholder="0" value="${editing?editing.amount:""}" />
     </div>
     <input class="inp" id="s-desc" placeholder="項目（例如 螃蟹大餐）" value="${editing?esc(editing.desc):""}" />
@@ -603,7 +712,7 @@ function splitAreaHTML(editing){
   return `<div class="split-rows">${trip.members.map(m=>`<div class="split-row">
     <span>${esc(m.name)}</span>
     <input class="inp num sm" inputmode="decimal" data-exact="${m.id}" placeholder="0" value="${editing&&editing.exact?(editing.exact[m.id]||""):""}" />
-    <span class="unit">${CURRENCIES[form.currency].symbol}</span></div>`).join("")}</div>`;
+    <span class="unit">${csym(form.currency)}</span></div>`).join("")}</div>`;
 }
 function bindSheet(editing){
   document.getElementById("sw").onclick=e=>{if(e.target.id==="sw")closeSheet();};
