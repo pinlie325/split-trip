@@ -126,6 +126,12 @@ button{cursor:pointer;font-family:inherit}
 .amt-inp:focus{outline:none}
 .split-rows{display:flex;flex-direction:column;gap:8px;margin-bottom:8px}
 .split-row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.none-note{background:#eef3f2;border:1px dashed var(--line);border-radius:12px;padding:13px;
+  font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:8px}
+.tag-none{display:inline-block;background:#eceff0;color:var(--muted);font-size:11px;
+  padding:1px 7px;border-radius:8px;margin-left:5px;font-weight:600;vertical-align:middle}
+.row-none .row-amt{color:var(--muted)}
+.row-none{opacity:.82}
 .split-row span:first-child{font-weight:600}
 .unit{color:var(--muted);font-size:13px}
 .rate-row{display:flex;align-items:center;gap:8px;margin-bottom:10px;font-size:14px}
@@ -275,6 +281,7 @@ function computeBalances(t){
   const net={},paid={},spent={};
   t.members.forEach(m=>{net[m.id]=0;paid[m.id]=0;spent[m.id]=0;});
   t.expenses.forEach(e=>{
+    if(e.splitType==="none")return;        // 不計入分帳：完全跳過
     if(net[e.payerId]===undefined)return;
     const v=toBase(e.amount,e.currency);
     net[e.payerId]+=v; paid[e.payerId]+=v;
@@ -482,13 +489,14 @@ function ledgerHTML(){
   trip.expenses.forEach(e=>{const d=e.date||"未分類";(groups[d]=groups[d]||[]).push(e);});
   return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,items])=>`
     <div><div class="day">${esc(d)}</div>
-    ${items.map(e=>{const c=catOf(e.category);return `
-      <button class="row" data-exp="${e.id}">
+    ${items.map(e=>{const c=catOf(e.category);const none=e.splitType==="none";return `
+      <button class="row ${none?"row-none":""}" data-exp="${e.id}">
         <span class="row-ic">${c.icon}</span>
         <span class="row-mid">
-          <span class="row-desc">${esc(e.desc||c.label)}</span>
+          <span class="row-desc">${esc(e.desc||c.label)}${none?` <span class="tag-none">不分帳</span>`:""}</span>
           <span class="row-meta">${mName(e.payerId)} 付 · ${
-            e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
+            none?"不計入分帳"
+            :e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
             :e.splitType==="shares"?"按份數":"指定金額"}</span>
         </span>
         <span class="row-amt num">${csym(e.currency)} ${fmt(e.amount)}</span>
@@ -692,13 +700,16 @@ function sheetHTML(editing,today){
     <div class="chips" id="payer-chips">${trip.members.map(m=>`
       <button class="chip ${form.payerId===m.id?"on":""}" data-payer="${m.id}">${esc(m.name)}</button>`).join("")}</div>
     <label class="lbl">怎麼分</label>
-    <div class="seg" id="split-seg">${[["equal","平均分"],["shares","按份數"],["exact","指定金額"]].map(([k,l])=>`
+    <div class="seg seg-wrap" id="split-seg">${[["equal","平均分"],["shares","按份數"],["exact","指定金額"],["none","不分帳"]].map(([k,l])=>`
       <button class="seg-btn ${form.splitType===k?"on":""}" data-split="${k}">${l}</button>`).join("")}</div>
     <div id="split-area">${splitAreaHTML(editing)}</div>
     <button class="btn primary big" data-s="save">${editing?"儲存修改":"加入帳目"}</button>
   </div></div>`;
 }
 function splitAreaHTML(editing){
+  if(form.splitType==="none"){
+    return `<div class="none-note">此筆只記錄，不分給任何人、不列入結算與總支出（例如個人自費）。</div>`;
+  }
   if(form.splitType==="equal"){
     return `<div class="chips" id="part-chips">${trip.members.map(m=>`
       <button class="chip ${form.participants.includes(m.id)?"on":""}" data-part="${m.id}">${esc(m.name)}</button>`).join("")}</div>`;
