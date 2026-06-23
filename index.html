@@ -132,6 +132,23 @@ button{cursor:pointer;font-family:inherit}
 .rate-row .inp{margin:0;width:100px;text-align:right}
 .setup{padding:40px 24px;max-width:480px;margin:0 auto;line-height:1.9}
 .setup code{background:#efe9dc;padding:2px 6px;border-radius:5px;font-size:13px}
+
+.trip-list{margin-top:18px}
+.trip-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:#fff;
+  border:1.5px solid var(--line);border-radius:14px;padding:13px 15px;margin-bottom:9px}
+.ti-main{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.ti-name{font-weight:700;font-size:15px}
+.ti-meta{font-size:12px;color:var(--muted)}
+.ti-go{color:var(--sea);font-weight:800;font-size:18px}
+
+.code-box{background:#eaf4f3;border:1.5px dashed var(--sea);border-radius:12px;
+  text-align:center;padding:14px;margin:4px 0 12px}
+.code-big{font-size:26px;font-weight:800;letter-spacing:4px;color:var(--sea-d)}
+
+#toast{position:fixed;left:50%;bottom:120px;transform:translateX(-50%) translateY(10px);
+  background:rgba(20,40,38,.92);color:#fff;padding:11px 22px;border-radius:24px;font-size:14px;
+  font-weight:600;z-index:60;opacity:0;pointer-events:none;transition:.2s}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
@@ -166,13 +183,18 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&
 /* ---------------------------- 狀態 ---------------------------- */
 let trip=null, code=null, tab="ledger";
 let sheetEditing=null, sheetOpen=false;
-let gateMode="home", gateNames=["",""], gateErr="";
+let gateMode="home", gateNames=["",""], gateErr="", gateTrips=null;
 
 /* --------------------------- API 層 --------------------------- */
 async function apiLoad(c){
   const r = await fetch(API_URL + "?code=" + encodeURIComponent(c));
   const j = await r.json();
   return j.trip;
+}
+async function apiList(){
+  const r = await fetch(API_URL + "?action=list");
+  const j = await r.json();
+  return j.trips || [];
 }
 async function apiSave(t){
   // text/plain body 屬於 CORS 簡單請求，可避開預檢問題
@@ -264,10 +286,18 @@ function setupHTML(){
 function gateHTML(){
   let inner="";
   if(gateMode==="home"){
+    let listBlock;
+    if(gateTrips===null)listBlock=`<p class="hint" style="text-align:center">讀取旅程中…</p>`;
+    else if(gateTrips.length===0)listBlock=`<p class="hint" style="text-align:center">目前還沒有任何旅程。</p>`;
+    else listBlock=`<div class="trip-list"><div class="lbl">我的旅程（${gateTrips.length}）</div>
+      ${gateTrips.map(t=>`<button class="trip-item" data-open="${esc(t.code)}">
+        <span class="ti-main"><span class="ti-name">${esc(t.name)}</span>
+        <span class="ti-meta">代碼 ${esc(t.code)} · ${t.members} 人</span></span>
+        <span class="ti-go">→</span></button>`).join("")}</div>`;
     inner=`
-      <button class="btn primary" data-g="create">建立新旅程</button>
-      <button class="btn ghost" data-g="join">用代碼加入</button>
-      <p class="hint">建立後會拿到一組代碼。把這個網頁連結與代碼分享給同行的人，大家就能記同一本帳。</p>`;
+      <button class="btn primary" data-g="create">➕ 建立新旅程</button>
+      <button class="btn ghost" data-g="join">🔑 用代碼加入</button>
+      ${listBlock}`;
   }else if(gateMode==="join"){
     inner=`
       <label class="lbl">旅程代碼</label>
@@ -296,11 +326,20 @@ function readGateNames(){
   if(els.length)gateNames=Array.from(els).map(e=>e.value);
 }
 function bindGate(){
+  // 在首頁時自動載入旅程清單
+  if(gateMode==="home" && gateTrips===null){
+    apiList().then(ts=>{gateTrips=ts;if(!trip)render();}).catch(()=>{gateTrips=[];if(!trip)render();});
+  }
+  document.querySelectorAll("[data-open]").forEach(b=>b.onclick=async()=>{
+    const c=b.dataset.open;
+    const t=await apiLoad(c);
+    if(t){trip=t;code=c;localStorage.setItem("split-code",c);render();}
+  });
   document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
     const g=b.dataset.g;
     if(g==="create"){gateMode="create";gateNames=["",""];render();}
     else if(g==="join"){gateMode="join";gateErr="";render();}
-    else if(g==="home"){gateMode="home";render();}
+    else if(g==="home"){gateMode="home";gateTrips=null;render();}
     else if(g==="more"){readGateNames();gateNames.push("");render();}
     else if(g==="do-join"){
       const c=(document.getElementById("g-code").value||"").trim().toUpperCase();
@@ -338,8 +377,8 @@ function appHTML(){
           <div class="hdr-sub">代碼 <b>${esc(trip.code)}</b> · ${trip.members.length} 人</div>
         </div>
         <div class="hdr-btns">
-          <button class="leave" data-act="refresh">↻</button>
-          <button class="leave" data-act="leave">切換</button>
+          <button class="leave" data-act="refresh">↻ 更新</button>
+          <button class="leave" data-act="leave">⇄ 切換</button>
         </div>
       </div>
       <div class="hdr-total"><span>總支出</span>
@@ -359,7 +398,9 @@ function bindApp(){
   const act=q=>document.querySelector(`[data-act="${q}"]`);
   if(act("add"))act("add").onclick=()=>openSheet(null);
   if(act("refresh"))act("refresh").onclick=poll;
-  if(act("leave"))act("leave").onclick=()=>{localStorage.removeItem("split-code");trip=null;code=null;tab="ledger";render();};
+  document.querySelectorAll('[data-act="leave"]').forEach(b=>b.onclick=()=>{
+    localStorage.removeItem("split-code");trip=null;code=null;tab="ledger";gateMode="home";gateTrips=null;render();
+  });
   if(tab==="ledger")bindLedger();
   if(tab==="members")bindMembers();
   if(tab==="settings")bindSettings();
@@ -459,7 +500,14 @@ function settingsHTML(){
     <p class="hint">數字是參考即時匯率帶入的，可改成你刷卡的實際匯率。</p>
   </div>
   <div class="card"><div class="card-title">分享給同行的人</div>
-    <p class="hint">把這個網頁的連結傳給家人，請他們選「用代碼加入」，輸入代碼 <b>${esc(trip.code)}</b>，就能一起記同一本帳。</p>
+    <p class="hint" style="margin-top:0">把代碼或網頁連結傳給家人，他們選「🔑 用代碼加入」輸入代碼，就能一起記同一本帳。</p>
+    <div class="code-box"><span class="code-big num">${esc(trip.code)}</span></div>
+    <button class="btn primary" data-copy="code">📋 按此複製代碼</button>
+    <button class="btn ghost" data-copy="link">🔗 複製網頁連結</button>
+    <button class="btn ghost" data-copy="both">📨 複製代碼＋連結</button>
+  </div>
+  <div class="card"><div class="card-title">關於這個旅程</div>
+    <button class="btn ghost" data-act="leave">⇄ 切換到其他旅程</button>
   </div>`;
 }
 function bindSettings(){
@@ -469,6 +517,34 @@ function bindSettings(){
     const v=parseFloat(inp.value);
     if(v>0)save(Object.assign({},trip,{rates:Object.assign({},trip.rates,{[inp.dataset.rate]:v})}));
   });
+  document.querySelectorAll("[data-copy]").forEach(b=>b.onclick=()=>{
+    const url=location.href.split("#")[0];
+    let text=trip.code;
+    if(b.dataset.copy==="link")text=url;
+    else if(b.dataset.copy==="both")text=`一起記帳吧！打開 ${url}\n選「用代碼加入」，輸入代碼：${trip.code}`;
+    copyText(text);
+  });
+}
+function copyText(t){
+  const done=()=>toast("已複製！");
+  if(navigator.clipboard&&navigator.clipboard.writeText){
+    navigator.clipboard.writeText(t).then(done).catch(()=>fallbackCopy(t,done));
+  }else fallbackCopy(t,done);
+}
+function fallbackCopy(t,done){
+  const ta=document.createElement("textarea");
+  ta.value=t;ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.select();
+  try{document.execCommand("copy");done();}catch(e){alert("複製失敗，請手動選取：\n"+t);}
+  document.body.removeChild(ta);
+}
+let toastTimer=null;
+function toast(msg){
+  let el=document.getElementById("toast");
+  if(!el){el=document.createElement("div");el.id="toast";document.body.appendChild(el);}
+  el.textContent=msg;el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove("show"),1600);
 }
 
 /* ====================== 記帳輸入表（sheet） ====================== */
