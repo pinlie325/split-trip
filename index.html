@@ -88,6 +88,24 @@ button:active{transform:translateY(1px)}
 .bal-detail{font-size:11px;color:var(--muted)}
 .bal-net{font-weight:800;font-size:14px}
 .bal-net.pos{color:var(--pos)} .bal-net.neg{color:var(--coral-d)}
+.settle-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pay-row{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px dashed var(--line)}
+.pay-row:last-child{border-bottom:none}
+.pay-flow{display:flex;align-items:center;gap:7px;flex-shrink:0}
+.ava{width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;color:#fff;font-size:17px;box-shadow:var(--sh-sm)}
+.ava-from{background:linear-gradient(135deg,#e6766d,var(--coral-d))}
+.ava-to{background:linear-gradient(135deg,#23a578,var(--pos))}
+.pay-arrow{color:var(--muted);font-weight:800;font-size:15px}
+.pay-info{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pay-names{font-size:13px;color:var(--ink)}
+.c-from{color:var(--coral-d)} .c-to{color:var(--pos)}
+.pay-amt{font-weight:800;font-size:18px}
+.cb-row{margin-bottom:13px}
+.cb-head{display:flex;justify-content:space-between;align-items:baseline;font-size:13.5px;font-weight:700;margin-bottom:6px}
+.cb-val{color:var(--muted);font-weight:700;font-size:12.5px}
+.cb-track{height:10px;background:#eee7d8;border-radius:6px;overflow:hidden}
+.cb-fill{height:100%;border-radius:6px;transition:width .4s ease}
+.cb-total{text-align:right;font-weight:800;color:var(--sea-d);margin-top:4px;font-size:13px}
 
 /* ---------- fab + nav ---------- */
 .fab{position:fixed;left:50%;transform:translateX(-50%);bottom:82px;z-index:6;max-width:430px;
@@ -324,9 +342,10 @@ async function apiSave(t){
 async function apiVerifyPin(pin){
   try{ const j=await api({action:"verifypin",pin}); return j&&j.ok; }catch(e){ return false; }
 }
-async function apiDelete(c,pin){
+async function apiDelete(c,secret){
   let token=""; try{ token=localStorage.getItem("owner:"+c)||""; }catch(e){}
-  const j=await api({action:"delete",code:c,token:token,pin:pin||""});
+  const s=(secret||"").trim();
+  const j=await api({action:"delete",code:c,confirm:s.toUpperCase(),pin:s,token:token});
   return j&&j.ok;
 }
 
@@ -429,12 +448,12 @@ function gateHTML(){
       ${gateTrips.map((t,i)=>{const own=isOwner(t.code);return `<div class="trip-item ${manageMode?"managing":""}">
         <button class="ti-tap" data-open="${i}">
           <span class="ti-main"><span class="ti-name">${esc(t.name)}${own?` <span class="tag-own">我建立</span>`:""}</span>
-          <span class="ti-meta">${manageMode&&own?`代碼 ${esc(t.code)} · `:""}${t.members} 人</span></span>
-          <span class="ti-go">${manageMode?(own?"📋":""):"→"}</span>
+          <span class="ti-meta">${manageMode?`代碼 ${esc(t.code)} · `:""}${t.members} 人</span></span>
+          <span class="ti-go">${manageMode?"📋":"→"}</span>
         </button>
         ${manageMode?`<button class="ti-del" data-del="${i}">🗑 刪除</button>`:""}
       </div>`;}).join("")}
-      <p class="hint" style="text-align:center;margin-top:4px">${manageMode?"你建立的旅程可直接刪除；其他旅程需管理 PIN":"點旅程進入（你建立的免代碼）"}</p></div>`;
+      <p class="hint" style="text-align:center;margin-top:4px">${manageMode?"管理者模式：點旅程複製代碼，可刪除任一旅程":"點旅程進入（你建立的免代碼）"}</p></div>`;
     inner=`
       <button class="btn primary" data-g="create">➕ 建立新旅程</button>
       <button class="btn ghost" data-g="join">🔑 用代碼加入</button>
@@ -473,9 +492,8 @@ function bindGate(){
   }
   document.querySelectorAll("[data-open]").forEach(b=>b.onclick=async()=>{
     const t=gateTrips[+b.dataset.open]; if(!t)return;
-    const own=isOwner(t.code);
-    if(manageMode){ if(own)copyText(t.code); return; }   // 管理模式：本機建立的點一下複製代碼
-    if(!own){
+    if(manageMode){ copyText(t.code); return; }   // 管理者模式：點一下複製代碼
+    if(!isOwner(t.code)){
       const input=prompt(`請輸入「${t.name}」的代碼以進入：`);
       if(input===null)return;
       if(input.trim().toUpperCase()!==String(t.code).toUpperCase()){alert("代碼不正確。");return;}
@@ -486,24 +504,25 @@ function bindGate(){
   });
   document.querySelectorAll("[data-del]").forEach(b=>b.onclick=async()=>{
     const t=gateTrips[+b.dataset.del]; if(!t)return;
-    const own=isOwner(t.code);
-    if(!confirm(`確定要刪除旅程「${t.name}」嗎？\n此動作會把雲端的這份帳移到垃圾桶。`))return;
-    let pin=null;
-    if(!own){
-      pin=prompt("此旅程非本機建立，請輸入管理 PIN 才能刪除：");
-      if(pin===null)return;
-    }
+    if(!confirm(`管理者刪除「${t.name}」？\n此動作會把雲端的這份帳移到垃圾桶。`))return;
     b.disabled=true; b.textContent="刪除中…";
-    const ok=await apiDelete(t.code,pin);
+    const ok=await apiDelete(t.code,sessionPin);   // 以管理 PIN 授權
     if(ok){ try{localStorage.removeItem("owner:"+t.code);}catch(e){} gateTrips=gateTrips.filter(x=>x.code!==t.code); toast("已刪除"); render(); }
-    else { b.disabled=false; b.textContent="🗑 刪除"; alert(own?"刪除失敗，請稍後再試。":"PIN 不正確或刪除失敗。"); }
+    else { b.disabled=false; b.textContent="🗑 刪除"; alert("刪除失敗，請稍後再試。"); }
   });
   document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
     const g=b.dataset.g;
     if(g==="create"){gateMode="create";gateNames=["",""];manageMode=false;render();}
     else if(g==="join"){gateMode="join";gateErr="";manageMode=false;render();}
     else if(g==="home"){gateMode="home";gateTrips=null;manageMode=false;render();}
-    else if(g==="manage"){ manageMode=!manageMode; render(); }
+    else if(g==="manage"){
+      if(manageMode){manageMode=false;sessionPin=null;render();return;}
+      const pin=prompt("管理者請輸入 PIN（可查看代碼並刪除旅程）：");
+      if(pin===null)return;
+      const ok=await apiVerifyPin(pin);
+      if(ok){sessionPin=pin;manageMode=true;render();}
+      else alert("PIN 不正確。");
+    }
     else if(g==="more"){readGateNames();gateNames.push("");render();}
     else if(g==="do-join"){
       const c=(document.getElementById("g-code").value||"").trim().toUpperCase();
@@ -565,6 +584,7 @@ function bindApp(){
   const act=q=>document.querySelector(`[data-act="${q}"]`);
   if(act("add"))act("add").onclick=()=>openSheet(null);
   if(act("refresh"))act("refresh").onclick=poll;
+  if(act("export"))act("export").onclick=exportSettlement;
   document.querySelectorAll('[data-act="leave"]').forEach(b=>b.onclick=()=>{
     localStorage.removeItem("split-code");trip=null;code=null;tab="ledger";gateMode="home";gateTrips=null;render();
   });
@@ -600,29 +620,104 @@ function bindLedger(){
   });
 }
 
+/* ----- 結算輔助 ----- */
+const CAT_COLORS={food:"#e0894a",stay:"#3f9fb0",transport:"#6aa84f",fun:"#c0598f",shop:"#d9a441",other:"#8a8f98"};
+function catColor(id){return CAT_COLORS[id]||"#8a8f98";}
+function avatarInitial(n){return String(n||"?").trim().charAt(0)||"?";}
+function splitLabel(e){return e.splitType==="none"?"不分帳":e.splitType==="equal"?"平均分":e.splitType==="shares"?"按比例":"指定金額";}
+function ensureXLSX(){
+  return new Promise(res=>{
+    if(window.XLSX)return res(true);
+    const s=document.createElement("script");
+    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    s.onload=()=>res(true); s.onerror=()=>res(false);
+    document.head.appendChild(s);
+    setTimeout(()=>res(!!window.XLSX),6000);
+  });
+}
+async function exportSettlement(){
+  const {net,paid,spent}=computeBalances(trip);
+  const tx=settle(Object.assign({},net));
+  const mn=id=>(trip.members.find(m=>m.id===id)||{}).name||"?";
+  const base=trip.baseCurrency;
+  const factorOf=e=>e.method==="card"?(1+(trip.cardFee||0)/100):1;
+  const toBase=(amt,cur)=>amt*(trip.rates[cur]||0)/(trip.rates[base]||1);
+  toast("整理中…");
+  const ok=await ensureXLSX();
+  if(ok&&window.XLSX){
+    const wb=XLSX.utils.book_new();
+    const s1=[["付款人","收款人","金額("+base+")"]].concat(tx.map(t=>[mn(t.from),mn(t.to),Math.round(t.amt)]));
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s1),"結算建議");
+    const s2=[["成員","已付","分攤","淨額(正為應收)"]].concat(trip.members.map(m=>[m.name,Math.round(paid[m.id]||0),Math.round(spent[m.id]||0),Math.round(net[m.id]||0)]));
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s2),"每人明細");
+    const s3=[["日期","項目","分類","付款人","幣別","金額","付款方式","分法","折"+base+"(含手續費)"]].concat(
+      trip.expenses.map(e=>[e.date||"",e.desc||catOf(e.category).label,catOf(e.category).label,mn(e.payerId),e.currency,e.amount,e.method==="card"?"刷卡":"現金",splitLabel(e),e.splitType==="none"?0:Math.round(toBase(e.amount*factorOf(e),e.currency))]));
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s3),"帳目明細");
+    XLSX.writeFile(wb,`分帳_${trip.name}.xlsx`);
+    toast("已下載 Excel");
+    return;
+  }
+  // CSV 後援（離線時）
+  const esc2=v=>{v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const line=arr=>arr.map(esc2).join(",");
+  let csv="\ufeff結算建議("+base+")\n"+line(["付款人","收款人","金額"])+"\n"+tx.map(t=>line([mn(t.from),mn(t.to),Math.round(t.amt)])).join("\n")+"\n\n";
+  csv+="每人明細\n"+line(["成員","已付","分攤","淨額"])+"\n"+trip.members.map(m=>line([m.name,Math.round(paid[m.id]||0),Math.round(spent[m.id]||0),Math.round(net[m.id]||0)])).join("\n")+"\n\n";
+  csv+="帳目明細\n"+line(["日期","項目","分類","付款人","幣別","金額","付款方式","分法","折"+base])+"\n"+trip.expenses.map(e=>line([e.date||"",e.desc||catOf(e.category).label,catOf(e.category).label,mn(e.payerId),e.currency,e.amount,e.method==="card"?"刷卡":"現金",splitLabel(e),e.splitType==="none"?0:Math.round(toBase(e.amount*factorOf(e),e.currency))])).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv;charset=utf-8"}));
+  a.download=`分帳_${trip.name}.csv`; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  toast("已下載 CSV（可用 Excel 開啟）");
+}
+
 /* ----- 結算 ----- */
 function settleHTML(){
   const {net,paid,spent}=computeBalances(trip);
   const sym=csym(trip.baseCurrency);
   const tx=settle(Object.assign({},net));
-  return `
-  <div class="card">
-    <div class="receipt-top">結算建議（以${clabel(trip.baseCurrency)}計）</div>
-    ${tx.length===0?`<div class="balanced">🎉 全部結清，沒有人欠錢！</div>`:
-      tx.map(t=>`<div class="tx">
-        <span class="tx-from">${mName(t.from)}</span>
-        <span class="tx-arrow">付給 →</span>
-        <span class="tx-to">${mName(t.to)}</span>
-        <span class="tx-amt num">${sym} ${fmt(t.amt)}</span></div>`).join("")}
-  </div>
-  <div class="card"><div class="card-title">每人明細</div>
-    ${trip.members.map(m=>{const n=net[m.id]||0;return `<div class="bal">
-      <span class="bal-name">${esc(m.name)}</span>
-      <span class="bal-nums">
-        <span class="bal-detail num">付 ${sym}${fmt(paid[m.id]||0)} · 用 ${sym}${fmt(spent[m.id]||0)}</span>
-        <span class="bal-net num ${n>=0?"pos":"neg"}">${n>=0?"應收 ":"應付 "}${sym}${fmt(Math.abs(n))}</span>
-      </span></div>`;}).join("")}
-  </div>`;
+  const factor=e=>e.method==="card"?(1+(trip.cardFee||0)/100):1;
+  const toBase=(amt,cur)=>amt*(trip.rates[cur]||0)/(trip.rates[trip.baseCurrency]||1);
+  const catTotals={}; let grand=0;
+  trip.expenses.forEach(e=>{ if(e.splitType==="none")return;
+    const v=toBase(e.amount*factor(e),e.currency); catTotals[e.category]=(catTotals[e.category]||0)+v; grand+=v; });
+  const catRows=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+
+  const txHTML = tx.length===0
+    ? '<div class="balanced">🎉 全部結清，沒有人欠錢！</div>'
+    : tx.map(t=>
+        '<div class="pay-row"><div class="pay-flow">'
+        +'<span class="ava ava-from">'+esc(avatarInitial(mName(t.from)))+'</span>'
+        +'<span class="pay-arrow">→</span>'
+        +'<span class="ava ava-to">'+esc(avatarInitial(mName(t.to)))+'</span></div>'
+        +'<div class="pay-info"><div class="pay-names"><b class="c-from">'+mName(t.from)+'</b> 付給 <b class="c-to">'+mName(t.to)+'</b></div>'
+        +'<div class="pay-amt num">'+sym+' '+fmt(t.amt)+'</div></div></div>'
+      ).join("");
+
+  let breakdown="";
+  if(grand>0){
+    const bars=catRows.map(function(e){
+      const cid=e[0], v=e[1], c=catOf(cid), pct=Math.round(v/grand*100);
+      return '<div class="cb-row"><div class="cb-head"><span class="cb-name">'+c.icon+' '+c.label+'</span>'
+        +'<span class="num cb-val">'+sym+fmt(v)+' · '+pct+'%</span></div>'
+        +'<div class="cb-track"><div class="cb-fill" style="width:'+Math.max(pct,2)+'%;background:'+catColor(cid)+'"></div></div></div>';
+    }).join("");
+    breakdown='<div class="card"><div class="card-title">支出比例</div>'+bars
+      +'<div class="cb-total num">總計 '+sym+fmt(grand)+'</div></div>';
+  }
+
+  const balHTML=trip.members.map(function(m){
+    const n=net[m.id]||0;
+    return '<div class="bal"><span class="bal-name">'+esc(m.name)+'</span><span class="bal-nums">'
+      +'<span class="bal-detail num">付 '+sym+fmt(paid[m.id]||0)+' · 用 '+sym+fmt(spent[m.id]||0)+'</span>'
+      +'<span class="bal-net num '+(n>=0?"pos":"neg")+'">'+(n>=0?"應收 ":"應付 ")+sym+fmt(Math.abs(n))+'</span></span></div>';
+  }).join("");
+
+  return '<div class="card"><div class="settle-head">'
+    +'<div class="card-title" style="margin:0">結算建議（以'+clabel(trip.baseCurrency)+'計）</div>'
+    +'<button class="link-btn" data-act="export">⬇︎ Excel</button></div>'+txHTML
+    +'<p class="hint" style="margin-top:10px">下載提醒：在 LINE／FB 內建瀏覽器可能無法存檔，建議用 Safari／Chrome 開啟本頁再下載。</p></div>'
+    +breakdown
+    +'<div class="card"><div class="card-title">每人明細</div>'+balHTML+'</div>';
 }
 
 /* ----- 成員 ----- */
@@ -713,7 +808,7 @@ function settingsHTML(){
   <div class="card"><div class="card-title">關於這個旅程</div>
     <button class="btn ghost" data-act="leave">⇄ 切換到其他旅程</button>
     <button class="btn danger" data-act="delete-trip">🗑 刪除這個旅程</button>
-    <p class="hint">${isOwner(trip.code)?"這是你建立的旅程，可直接刪除。":"此旅程非本機建立，刪除需要管理 PIN。"}刪除後會移到雲端垃圾桶。</p>
+    <p class="hint">建立者／知道代碼的人：輸入本旅程代碼（${esc(trip.code)}）即可刪除。刪除後會移到雲端垃圾桶。</p>
   </div>`;
 }
 function bindSettings(){
@@ -781,13 +876,11 @@ function bindSettings(){
   });
   const dt=document.querySelector('[data-act="delete-trip"]');
   if(dt)dt.onclick=async()=>{
-    const own=isOwner(trip.code);
-    if(!confirm(`確定要刪除「${trip.name}」嗎？\n所有帳目會一起移到雲端垃圾桶。`))return;
-    let pin=null;
-    if(!own){ pin=prompt("此旅程非本機建立，請輸入管理 PIN 才能刪除："); if(pin===null)return; }
+    const input=prompt(`刪除「${trip.name}」，請輸入本旅程代碼確認：`);
+    if(input===null||!input.trim())return;
     const c=trip.code;
     dt.disabled=true; dt.textContent="刪除中…";
-    const ok=await apiDelete(c,pin);
+    const ok=await apiDelete(c,input);
     if(ok){
       try{localStorage.removeItem("owner:"+c);}catch(e){}
       if(localStorage.getItem("split-code")===c)localStorage.removeItem("split-code");
@@ -795,7 +888,7 @@ function bindSettings(){
       toast("已刪除"); render();
     }else{
       dt.disabled=false; dt.textContent="🗑 刪除這個旅程";
-      alert(own?"刪除失敗，請稍後再試。":"PIN 不正確或刪除失敗。");
+      alert("代碼不正確，未刪除。");
     }
   };
 }
