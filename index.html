@@ -154,6 +154,10 @@ button:active{transform:translateY(1px)}
 .tagline{text-align:center;color:var(--muted);font-size:13px;margin:8px 0 26px;letter-spacing:.5px}
 .add-row{display:flex;gap:8px;align-items:flex-start}
 .add-row .inp{margin:0}
+.mem-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.mem-name{margin:0;flex:1;font-weight:600}
+.mem-del{flex:0 0 auto;padding:8px 6px}
+.mem-tag{flex:0 0 auto;font-size:11px;color:var(--muted);background:var(--line2);padding:4px 10px;border-radius:10px;font-weight:600}
 
 /* ---------- segmented ---------- */
 .seg{display:flex;gap:6px;background:#efe9dc;padding:5px;border-radius:14px;margin-bottom:6px}
@@ -760,9 +764,12 @@ function membersHTML(){
   <div class="card"><div class="card-title">成員（${trip.members.length}）</div>
     ${trip.members.map(m=>{
       const used=trip.expenses.some(e=>e.payerId===m.id||(e.participants||[]).includes(m.id)||(e.exact&&e.exact[m.id])||(e.shares&&e.shares[m.id]));
-      return `<div class="bal"><span class="bal-name">${esc(m.name)}</span>
-        ${used?"":`<button class="del" data-rm="${m.id}">移除</button>`}</div>`;
+      return `<div class="mem-row">
+        <input class="inp mem-name" data-mid="${m.id}" value="${esc(m.name)}" autocomplete="off" />
+        ${used?`<span class="mem-tag">使用中</span>`:`<button class="del mem-del" data-rm="${m.id}">移除</button>`}
+      </div>`;
     }).join("")}
+    <p class="hint">點名字即可修改，改完點別處自動儲存（會同步更新所有帳目）。使用中的成員無法移除。</p>
   </div>`;
 }
 function bindMembers(){
@@ -772,6 +779,15 @@ function bindMembers(){
     if(!v)return;
     save(Object.assign({},trip,{members:[...trip.members,{id:uid(),name:v}]}));
   };
+  document.querySelectorAll(".mem-name").forEach(inp=>inp.onblur=()=>{
+    const id=inp.dataset.mid;
+    const cur=trip.members.find(m=>m.id===id); if(!cur)return;
+    const v=inp.value.trim();
+    if(!v){inp.value=cur.name;return;}      // 空白 → 還原
+    if(v===cur.name)return;
+    const members=trip.members.map(m=>m.id===id?Object.assign({},m,{name:v}):m);
+    save(Object.assign({},trip,{members}));
+  });
   document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{
     save(Object.assign({},trip,{members:trip.members.filter(x=>x.id!==b.dataset.rm)}));
   });
