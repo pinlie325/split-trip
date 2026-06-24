@@ -1155,9 +1155,11 @@ function submitSheet(editing){
 /* --------------------------- 同步輪詢 --------------------------- */
 async function poll(){
   if(!code||sheetOpen)return;        // 編輯中暫不覆蓋
+  const cur=code;                    // 記住這次輪詢針對的旅程
   try{
-    const remote=await apiLoad(code);
-    if(remote&&remote.updatedAt>(trip?trip.updatedAt:0)){trip=remote;render();}
+    const remote=await apiLoad(cur);
+    if(cur!==code||!code||sheetOpen)return;          // 期間已切換／離開／開始編輯 → 放棄套用
+    if(remote&&remote.code===cur&&remote.updatedAt>(trip?trip.updatedAt:0)){trip=remote;render();}
   }catch(e){}
 }
 setInterval(poll,6000);
