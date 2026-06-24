@@ -243,6 +243,14 @@ select.inp{margin-top:4px;-webkit-appearance:none;appearance:none;
 .code-box{background:var(--tint);border:1.5px dashed var(--sea);border-radius:14px;text-align:center;padding:16px;margin:6px 0 14px}
 .code-big{font-size:28px;font-weight:900;letter-spacing:6px;color:var(--sea-dd)}
 
+/* ---------- modal ---------- */
+.modal-wrap{position:fixed;inset:0;background:rgba(16,26,25,.55);z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;backdrop-filter:blur(3px)}
+.modal{background:var(--card);border-radius:24px;padding:28px 24px;width:100%;max-width:360px;text-align:center;box-shadow:var(--sh-lg);animation:pop .25s cubic-bezier(.2,.8,.2,1)}
+@keyframes pop{from{transform:scale(.9);opacity:0}to{transform:scale(1);opacity:1}}
+.modal-ic{font-size:42px;margin-bottom:6px}
+.modal-h{font-size:20px;font-weight:800;margin-bottom:8px}
+.modal-p{font-size:13px;color:var(--muted);line-height:1.7;margin:0 0 16px}
+
 /* ---------- toast ---------- */
 #toast{position:fixed;left:50%;bottom:124px;transform:translateX(-50%) translateY(10px);
   background:rgba(18,38,36,.94);color:#fff;padding:12px 24px;border-radius:26px;font-size:14px;font-weight:700;
@@ -320,7 +328,7 @@ const esc = s => String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&
 /* ---------------------------- 狀態 ---------------------------- */
 let trip=null, code=null, tab="ledger";
 let sheetEditing=null, sheetOpen=false;
-let gateMode="home", gateNames=["",""], gateErr="", gateTrips=null, manageMode=false;
+let gateMode="home", gateName="", gateNames=["",""], gateErr="", gateTrips=null, manageMode=false;
 let sessionPin=null;
 
 /* --------------------------- API 層 --------------------------- */
@@ -468,10 +476,11 @@ function gateHTML(){
   }else{
     inner=`
       <label class="lbl">旅程名稱</label>
-      <input class="inp" id="g-name" placeholder="新馬家庭旅遊" value="" />
+      <input class="inp" id="g-name" placeholder="新馬家庭旅遊" value="${esc(gateName)}" />
       <label class="lbl">成員</label>
       ${gateNames.map((n,i)=>`<input class="inp g-mem" placeholder="成員 ${i+1}" value="${esc(n)}" />`).join("")}
       <button class="btn ghost sm" data-g="more" style="margin-bottom:10px">＋ 多一位</button>
+      ${gateErr?`<div class="err">${esc(gateErr)}</div>`:""}
       <button class="btn primary" data-g="do-create">建立旅程</button>
       <button class="btn ghost" data-g="home">返回</button>`;
   }
@@ -482,6 +491,8 @@ function gateHTML(){
   </div></div>`;
 }
 function readGateNames(){
+  const nameEl=document.getElementById("g-name");
+  if(nameEl)gateName=nameEl.value;
   const els=document.querySelectorAll(".g-mem");
   if(els.length)gateNames=Array.from(els).map(e=>e.value);
 }
@@ -512,9 +523,9 @@ function bindGate(){
   });
   document.querySelectorAll("[data-g]").forEach(b=>b.onclick=async()=>{
     const g=b.dataset.g;
-    if(g==="create"){gateMode="create";gateNames=["",""];manageMode=false;render();}
+    if(g==="create"){gateMode="create";gateName="";gateNames=["",""];gateErr="";manageMode=false;render();}
     else if(g==="join"){gateMode="join";gateErr="";manageMode=false;render();}
-    else if(g==="home"){gateMode="home";gateTrips=null;manageMode=false;render();}
+    else if(g==="home"){gateMode="home";gateErr="";gateTrips=null;manageMode=false;render();}
     else if(g==="manage"){
       if(manageMode){manageMode=false;sessionPin=null;render();return;}
       const pin=prompt("管理者請輸入 PIN（可查看代碼並刪除旅程）：");
@@ -533,15 +544,19 @@ function bindGate(){
     }
     else if(g==="do-create"){
       readGateNames();
-      const name=document.getElementById("g-name").value;
+      const name=(gateName||"").trim();
       const m=gateNames.map(s=>s.trim()).filter(Boolean);
-      if(m.length<2){gateErr="";return;}
+      if(!name){gateErr="請先輸入旅程名稱。";render();return;}
+      if(m.length<2){gateErr="請至少輸入兩位成員。";render();return;}
+      gateErr="";
       const c=Math.random().toString(36).slice(2,6).toUpperCase()+Math.random().toString(36).slice(2,4).toUpperCase();
       const ownerToken=uid()+uid()+uid();
       const t=newTrip(c,name,m); t.ownerToken=ownerToken;
       try{ localStorage.setItem("owner:"+c, ownerToken); }catch(e){}
       code=c; localStorage.setItem("split-code",c);
+      gateName="";
       await save(t);
+      showCodeReminder(c);
     }
   });
 }
@@ -912,6 +927,22 @@ function toast(msg){
   el.textContent=msg;el.classList.add("show");
   clearTimeout(toastTimer);
   toastTimer=setTimeout(()=>el.classList.remove("show"),1600);
+}
+function showCodeReminder(c){
+  const wrap=document.createElement("div");
+  wrap.className="modal-wrap";
+  wrap.innerHTML=`<div class="modal">
+    <div class="modal-ic">🎉</div>
+    <div class="modal-h">旅程建立成功！</div>
+    <p class="modal-p">這是你的旅程代碼，請先複製保存。之後你或同行的人要用它登入這個旅程：</p>
+    <div class="code-box"><span class="code-big num">${esc(c)}</span></div>
+    <button class="btn primary" id="mr-copy">📋 複製代碼</button>
+    <button class="btn ghost" id="mr-ok">我已記下，開始記帳</button>
+  </div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector("#mr-copy").onclick=()=>copyText(c);
+  wrap.querySelector("#mr-ok").onclick=()=>wrap.remove();
+  wrap.onclick=e=>{if(e.target===wrap)wrap.remove();};
 }
 
 /* ====================== 記帳輸入表（sheet） ====================== */
