@@ -191,11 +191,14 @@ button:active{transform:translateY(1px)}
 
 /* ---------- sheet ---------- */
 .sheet-wrap{position:fixed;inset:0;background:rgba(16,26,25,.5);z-index:20;display:flex;align-items:flex-end;justify-content:center;backdrop-filter:blur(2px)}
-.sheet{background:var(--sand);width:100%;max-width:480px;border-radius:28px 28px 0 0;padding:8px 18px 28px;max-height:93vh;overflow-y:auto;
+.sheet{background:var(--sand);width:100%;max-width:480px;border-radius:28px 28px 0 0;padding:8px 18px 28px;max-height:88vh;overflow-y:auto;
   animation:up .28s cubic-bezier(.2,.8,.2,1);box-shadow:0 -10px 40px rgba(0,0,0,.2)}
 @keyframes up{from{transform:translateY(100%)}to{transform:translateY(0)}}
-.sheet-grip{width:42px;height:5px;background:#d8d0bf;border-radius:3px;margin:8px auto 14px}
+.sheet-grip{width:46px;height:5px;background:#d8d0bf;border-radius:3px;margin:8px auto 14px;padding:8px 0;background-clip:content-box;box-sizing:content-box}
 .sheet-h{display:flex;justify-content:space-between;align-items:center;font-size:19px;font-weight:800;margin-bottom:16px;letter-spacing:.3px}
+.sheet-h-actions{display:flex;align-items:center;gap:12px}
+.sheet-close{border:none;background:#ece6da;color:var(--ink);width:34px;height:34px;border-radius:50%;font-size:16px;font-weight:700;line-height:1;display:flex;align-items:center;justify-content:center}
+.sheet-close:active{background:#ddd5c5}
 .amt-box{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px;margin-bottom:13px;box-shadow:var(--sh-sm)}
 .amt-inp{width:100%;border:none;background:none;font-size:42px;font-weight:800;text-align:center;color:var(--ink);margin-top:10px;
   font-variant-numeric:tabular-nums;font-family:"SF Mono",ui-monospace,monospace}
@@ -1030,9 +1033,12 @@ function closeSheet(){sheetOpen=false;sheetEditing=null;document.getElementById(
 
 function sheetHTML(editing,today){
   return `<div class="sheet-wrap" id="sw"><div class="sheet" id="sb">
-    <div class="sheet-grip"></div>
-    <div class="sheet-h">${editing?"編輯帳目":"記一筆"}
-      ${editing?`<button class="del" data-s="delete">刪除</button>`:""}</div>
+    <div class="sheet-grip" data-s="close"></div>
+    <div class="sheet-h"><span>${editing?"編輯帳目":"記一筆"}</span>
+      <span class="sheet-h-actions">
+        ${editing?`<button class="del" data-s="delete">刪除</button>`:""}
+        <button class="sheet-close" data-s="close" aria-label="關閉">✕</button>
+      </span></div>
     <div class="amt-box">
       <div class="seg compact" id="cur-seg">${clist().map(c=>`
         <button class="seg-btn ${form.currency===c.code?"on":""}" data-cur="${c.code}">${esc(c.symbol)}</button>`).join("")}</div>
@@ -1152,6 +1158,7 @@ function bindSheet(editing){
   bindSplit(editing);
   updateFeeNote();
   // 刪除 / 儲存
+  document.querySelectorAll('[data-s="close"]').forEach(b=>b.onclick=closeSheet);
   const del=document.querySelector('[data-s="delete"]');
   if(del)del.onclick=()=>{save(Object.assign({},trip,{expenses:trip.expenses.filter(x=>x.id!==editing.id)}));closeSheet();};
   document.querySelector('[data-s="save"]').onclick=()=>submitSheet(editing);
