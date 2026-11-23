@@ -60,9 +60,22 @@ button:active{transform:translateY(1px)}
 .body{padding:16px 14px 100px}
 
 /* ---------- ledger ---------- */
-.day{font-size:12px;color:var(--muted);font-weight:800;letter-spacing:.8px;margin:16px 6px 9px;text-transform:uppercase}
+.day{font-size:15px;color:var(--sub);font-weight:800;letter-spacing:.5px;margin:20px 6px 10px;text-transform:uppercase}
+/* swipe-to-delete wrapper */
+.row-wrap{position:relative;overflow:hidden;border-radius:17px;margin-bottom:9px;touch-action:pan-y}
+.row-del-bg{position:absolute;right:0;top:0;bottom:0;width:80px;background:#e53e3e;
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:22px;border-radius:17px;
+  opacity:0;transition:opacity .15s;pointer-events:none}
+.row-wrap.swiping .row-del-bg{opacity:1}
+/* drag handle */
+.row-handle{cursor:grab;padding:0 6px 0 0;color:var(--muted);font-size:16px;flex-shrink:0;
+  user-select:none;touch-action:none;align-self:center}
+.row-handle:active{cursor:grabbing}
+.row-wrap.row-dragging{opacity:.35}
+.row-wrap.row-drag-over{outline:2px dashed #6c63ff;outline-offset:-2px}
 .row{display:flex;align-items:center;gap:13px;width:100%;text-align:left;background:var(--card);
-  border:1px solid var(--line);border-radius:17px;padding:13px 15px;margin-bottom:9px;box-shadow:var(--sh-sm)}
+  border:1px solid var(--line);border-radius:17px;padding:13px 15px;box-shadow:var(--sh-sm);
+  position:relative;transition:transform .2s}
 .row:active{transform:scale(.99)}
 .row-ic{font-size:20px;width:42px;height:42px;flex-shrink:0;border-radius:13px;
   background:var(--tint);display:flex;align-items:center;justify-content:center}
@@ -332,7 +345,7 @@ function normalizeTrip(t){
   if(!t.currencies||!t.currencies.length) t.currencies=DEFAULT_CURRENCIES.map(c=>Object.assign({},c));
   t.rates=t.rates||{};
   t.currencies.forEach(c=>{ if(typeof t.rates[c.code]!=="number") t.rates[c.code]=(c.code==="TWD"?1:1); });
-  if(!t.currencies.some(c=>c.code===t.baseCurrency)) t.baseCurrency=t.currencies[0].code;
+  if(t.baseCurrency && !t.currencies.some(c=>c.code===t.baseCurrency)) t.baseCurrency=null;
   if(typeof t.cardFee!=="number") t.cardFee=1.5;
   return t;
 }
@@ -382,7 +395,7 @@ async function apiDelete(c,secret){
 }
 
 function newTrip(c,name,members){
-  return {code:c,name:name||"我們的旅程",baseCurrency:"TWD",
+  return {code:c,name:name||"我們的旅程",baseCurrency:null,
     currencies:DEFAULT_CURRENCIES.map(x=>Object.assign({},x)),
     rates:{TWD:1,MYR:7.8,SGD:24.6},
     cardFee:1.5,
@@ -611,7 +624,7 @@ function appHTML(){
     <header class="hdr">
       <div class="hdr-row">
         <div>
-          <div class="hdr-name">${esc(trip.name)}</div>
+          <div class="hdr-name" id="hdr-name-display" title="點一下修改名稱" style="cursor:pointer" data-act="edit-name">${esc(trip.name)} ✏️</div>
           <div class="hdr-sub">代碼 <b>${esc(trip.code)}</b> · ${trip.members.length} 人</div>
         </div>
         <div class="hdr-btns">
@@ -620,7 +633,7 @@ function appHTML(){
         </div>
       </div>
       <div class="hdr-total"><span>總支出</span>
-        <span class="num">${csym(trip.baseCurrency)} ${fmt(total)}</span></div>
+        <span class="num">${trip.baseCurrency?`${csym(trip.baseCurrency)} ${fmt(total)}`:'— 請先設定結算幣別'}</span></div>
     </header>
     <main class="body">${view}</main>
     ${tab==="ledger"?`<button class="fab" data-act="add">＋ 記一筆</button>`:""}
@@ -637,6 +650,15 @@ function bindApp(){
   if(act("add"))act("add").onclick=()=>openSheet(null);
   if(act("refresh"))act("refresh").onclick=poll;
   if(act("export"))act("export").onclick=exportSettlement;
+  // 點標題直接改名
+  if(act("edit-name"))act("edit-name").onclick=()=>{
+    const cur=trip.name;
+    const newName=prompt("旅程名稱：",cur);
+    if(newName===null)return;
+    const n=newName.trim();
+    if(!n||n===cur)return;
+    trip.name=n; apiSave(trip); render();
+  };
   document.querySelectorAll('[data-act="leave"]').forEach(b=>b.onclick=()=>{
     localStorage.removeItem("split-code");trip=null;code=null;tab="ledger";gateMode="home";gateTrips=null;render();
   });
@@ -650,26 +672,124 @@ function ledgerHTML(){
   if(!trip.expenses.length)
     return `<div class="empty"><div class="empty-ic">🧾</div>還沒有任何帳目。<br>點右下角「記一筆」開始吧。</div>`;
   const groups={};
+  const WEEKDAYS=["日","一","二","三","四","五","六"];
+  function fmtDay(d){
+    // d = "2026-06-30" 或其他字串
+    if(!d||d==="未分類")return d;
+    const m=d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(!m)return d;
+    const dt=new Date(+m[1],+m[2]-1,+m[3]);
+    const w=WEEKDAYS[dt.getDay()];
+    return `${m[2]}/${m[3]}（${w}）`;
+  }
   trip.expenses.forEach(e=>{const d=e.date||"未分類";(groups[d]=groups[d]||[]).push(e);});
   return Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0])).map(([d,items])=>`
-    <div><div class="day">${esc(d)}</div>
+    <div><div class="day">${esc(fmtDay(d))}</div>
     ${items.map(e=>{const c=catOf(e.category);const none=e.splitType==="none";return `
-      <button class="row ${none?"row-none":""}" data-exp="${e.id}">
-        <span class="row-ic">${c.icon}</span>
-        <span class="row-mid">
-          <span class="row-desc">${esc(e.desc||c.label)}${none?` <span class="tag-none">不分帳</span>`:""}</span>
-          ${e.note?`<span class="row-note">📄 ${esc(e.note)}</span>`:""}
-          <span class="row-meta">${mName(e.payerId)} 付${e.method==="card"?" 💳":""} · ${
-            none?"不計入分帳"
-            :e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
-            :e.splitType==="shares"?"按比例":"指定金額"}</span></span>
-        </span>
-        <span class="row-amt num">${csym(e.currency)} ${fmt(e.amount)}</span>
-      </button>`;}).join("")}</div>`).join("");
+      <div class="row-wrap" draggable="true" data-eid="${e.id}">
+        <div class="row-del-bg">🗑️</div>
+        <button class="row ${none?"row-none":""}" data-exp="${e.id}">
+          <span class="row-handle" title="拖曳排序">⠿</span>
+          <span class="row-ic">${c.icon}</span>
+          <span class="row-mid">
+            <span class="row-desc">${esc(e.desc||c.label)}${none?` <span class="tag-none">不分帳</span>`:""}</span>
+            ${e.note?`<span class="row-note">📄 ${esc(e.note)}</span>`:""}
+            <span class="row-meta">${mName(e.payerId)} 付${e.method==="card"?" 💳":""} · ${
+              none?"不計入分帳"
+              :e.splitType==="equal"?`均分 ${(e.participants||[]).length} 人`
+              :e.splitType==="shares"?"按比例":"指定金額"}</span></span>
+          </span>
+          <span class="row-amt num">${csym(e.currency)} ${fmt(e.amount)}</span>
+        </button>
+      </div>`;}).join("")}</div>`).join("");
 }
 function bindLedger(){
-  document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=()=>{
+  /* 點擊開啟編輯 */
+  document.querySelectorAll("[data-exp]").forEach(b=>b.onclick=e=>{
+    if(e.target.classList.contains('row-handle')) return;
     openSheet(trip.expenses.find(x=>x.id===b.dataset.exp));
+  });
+
+  /* ── 拖曳排序 ── */
+  let dragEid=null;
+  document.querySelectorAll('.row-wrap').forEach(el=>{
+    el.addEventListener('dragstart',e=>{
+      dragEid=el.dataset.eid;
+      el.classList.add('row-dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    el.addEventListener('dragend',()=>{
+      el.classList.remove('row-dragging');
+      document.querySelectorAll('.row-wrap').forEach(c=>c.classList.remove('row-drag-over'));
+    });
+    el.addEventListener('dragover',e=>{
+      e.preventDefault(); e.dataTransfer.dropEffect='move';
+      if(el.dataset.eid!==dragEid) el.classList.add('row-drag-over');
+    });
+    el.addEventListener('dragleave',()=>el.classList.remove('row-drag-over'));
+    el.addEventListener('drop',e=>{
+      e.preventDefault(); el.classList.remove('row-drag-over');
+      const toEid=el.dataset.eid;
+      if(!dragEid||dragEid===toEid) return;
+      const exps=trip.expenses;
+      const fi=exps.findIndex(x=>x.id===dragEid);
+      const ti=exps.findIndex(x=>x.id===toEid);
+      if(fi<0||ti<0) return;
+      const [moved]=exps.splice(fi,1);
+      exps.splice(ti,0,moved);
+      save(trip);
+    });
+  });
+
+  /* ── 左滑刪除 ── */
+  document.querySelectorAll('.row-wrap').forEach(el=>{
+    let startX=0,startY=0,swiping=false;
+    const onStart=e=>{
+      const t=e.touches?e.touches[0]:e;
+      startX=t.clientX; startY=t.clientY; swiping=false;
+      el.querySelector('.row').style.transition='none';
+    };
+    const onMove=e=>{
+      const t=e.touches?e.touches[0]:e;
+      const dx=t.clientX-startX;
+      const dy=Math.abs(t.clientY-startY);
+      if(dy>10&&!swiping) return; // 垂直滾動優先
+      if(dx<-10){
+        swiping=true;
+        if(e.cancelable) e.preventDefault();
+        const shift=Math.max(dx,-90);
+        el.querySelector('.row').style.transform=`translateX(${shift}px)`;
+        el.classList.toggle('swiping', shift<-30);
+      }
+    };
+    const onEnd=e=>{
+      const row=el.querySelector('.row');
+      row.style.transition='';
+      const cur=parseFloat(row.style.transform.replace('translateX(',''))||0;
+      if(cur<-50){
+        // 滑過一半 → 確認刪除
+        row.style.transform='translateX(-90px)';
+        const eid=el.dataset.eid;
+        const exp=trip.expenses.find(x=>x.id===eid);
+        const desc=exp?exp.desc||'此筆帳目':'此筆帳目';
+        if(confirm(`確定刪除「${desc}」？`)){
+          trip.expenses=trip.expenses.filter(x=>x.id!==eid);
+          save(trip);
+        } else {
+          row.style.transform=''; el.classList.remove('swiping');
+        }
+      } else {
+        row.style.transform=''; el.classList.remove('swiping');
+      }
+    };
+    el.addEventListener('touchstart',onStart,{passive:true});
+    el.addEventListener('touchmove',onMove,{passive:false});
+    el.addEventListener('touchend',onEnd);
+    // 滑鼠版（桌機也能用）
+    el.addEventListener('mousedown',e=>{ if(e.button!==0) return; onStart(e);
+      const mm=ev=>onMove(ev), mu=ev=>{onEnd(ev); window.removeEventListener('mousemove',mm); window.removeEventListener('mouseup',mu);};
+      window.addEventListener('mousemove',mm); window.addEventListener('mouseup',mu);
+    });
   });
 }
 
@@ -680,12 +800,20 @@ function avatarInitial(n){return String(n||"?").trim().charAt(0)||"?";}
 function splitLabel(e){return e.splitType==="none"?"不分帳":e.splitType==="equal"?"平均分":e.splitType==="shares"?"按比例":"指定金額";}
 function ensureXLSX(){
   return new Promise(res=>{
-    if(window.XLSX)return res(true);
+    if(window.XLSX&&window.XLSX.utils&&window.XLSX.utils.encode_cell)return res(true);
+    // sheetjs-style 支援 .s 樣式屬性
     const s=document.createElement("script");
-    s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    s.onload=()=>res(true); s.onerror=()=>res(false);
+    s.src="https://cdn.jsdelivr.net/npm/sheetjs-style@0.15.8/dist/xlsx.full.min.js";
+    s.onload=()=>res(!!window.XLSX);
+    s.onerror=()=>{
+      // 後援：用原始 xlsx（無樣式）
+      const s2=document.createElement("script");
+      s2.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+      s2.onload=()=>res(!!window.XLSX); s2.onerror=()=>res(false);
+      document.head.appendChild(s2);
+    };
     document.head.appendChild(s);
-    setTimeout(()=>res(!!window.XLSX),6000);
+    setTimeout(()=>res(!!window.XLSX),8000);
   });
 }
 async function exportSettlement(){
@@ -693,21 +821,74 @@ async function exportSettlement(){
   const tx=settle(Object.assign({},net));
   const mn=id=>(trip.members.find(m=>m.id===id)||{}).name||"?";
   const base=trip.baseCurrency;
+  const baseSym=csym(base);
   const factorOf=e=>e.method==="card"?(1+(trip.cardFee||0)/100):1;
   const toBase=(amt,cur)=>amt*(trip.rates[cur]||0)/(trip.rates[base]||1);
   toast("整理中…");
   const ok=await ensureXLSX();
   if(ok&&window.XLSX){
     const wb=XLSX.utils.book_new();
-    const s1=[["付款人","收款人","金額("+base+")"]].concat(tx.map(t=>[mn(t.from),mn(t.to),Math.round(t.amt)]));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s1),"結算建議");
-    const s2=[["成員","已付","分攤","淨額(正為應收)"]].concat(trip.members.map(m=>[m.name,Math.round(paid[m.id]||0),Math.round(spent[m.id]||0),Math.round(net[m.id]||0)]));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s2),"每人明細");
-    const s3=[["日期","項目","分類","付款人","幣別","金額","付款方式","分法","折"+base+"(含手續費)","備註"]].concat(
-      trip.expenses.map(e=>[e.date||"",e.desc||catOf(e.category).label,catOf(e.category).label,mn(e.payerId),e.currency,e.amount,e.method==="card"?"刷卡":"現金",splitLabel(e),e.splitType==="none"?0:Math.round(toBase(e.amount*factorOf(e),e.currency)),e.note||""]));
-    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(s3),"帳目明細");
+    // 標題列樣式（綠底白字粗體）
+    const H={font:{bold:true,color:{rgb:"FFFFFF"},sz:11,name:"Arial"},
+              fill:{fgColor:{rgb:"2D9E82"},patternType:"solid"},
+              alignment:{horizontal:"center",vertical:"center",wrapText:false},
+              border:{bottom:{style:"medium",color:{rgb:"1A7A60"}}}};
+    // 數字欄樣式
+    const N={font:{name:"Arial",sz:10},
+              alignment:{horizontal:"right"},
+              numFmt:"#,##0"};
+    // 文字欄樣式（偶數列淡底）
+    const T={font:{name:"Arial",sz:10},alignment:{horizontal:"left"}};
+    function applyStyles(ws,numColIdx){
+      if(!ws['!ref'])return ws;
+      const range=XLSX.utils.decode_range(ws['!ref']);
+      for(let C=range.s.c;C<=range.e.c;C++){
+        // 標題列
+        const hAddr=XLSX.utils.encode_cell({r:0,c:C});
+        if(ws[hAddr]) ws[hAddr].s=H;
+        // 資料列
+        for(let R=1;R<=range.e.r;R++){
+          const addr=XLSX.utils.encode_cell({r:R,c:C});
+          if(ws[addr]){
+            ws[addr].s=numColIdx.includes(C)?N:T;
+          }
+        }
+      }
+      ws['!rows']=[{hpt:24}]; // 標題列高度
+      return ws;
+    }
+
+    // Sheet1 結算建議
+    const h1=["付款人","收款人",`金額（${baseSym}）`];
+    const d1=tx.map(t=>[mn(t.from),mn(t.to),Math.round(t.amt)]);
+    const ws1=XLSX.utils.aoa_to_sheet([h1,...d1]);
+    ws1['!cols']=[{wch:14},{wch:14},{wch:16}];
+    applyStyles(ws1,[2]);
+    XLSX.utils.book_append_sheet(wb,ws1,"結算建議");
+
+    // Sheet2 每人明細
+    const h2=["成員",`已付（${baseSym}）`,`分攤（${baseSym}）`,`淨額（${baseSym}，正為應收）`];
+    const d2=trip.members.map(m=>[m.name,Math.round(paid[m.id]||0),Math.round(spent[m.id]||0),Math.round(net[m.id]||0)]);
+    const ws2=XLSX.utils.aoa_to_sheet([h2,...d2]);
+    ws2['!cols']=[{wch:12},{wch:16},{wch:16},{wch:24}];
+    applyStyles(ws2,[1,2,3]);
+    XLSX.utils.book_append_sheet(wb,ws2,"每人明細");
+
+    // Sheet3 帳目明細
+    const h3=["日期","項目","分類","付款人","幣別","金額",`折${baseSym}（含手續費）`,"付款方式","分法","備註"];
+    const d3=trip.expenses.map(e=>[
+      e.date||"", e.desc||catOf(e.category).label, catOf(e.category).label,
+      mn(e.payerId), e.currency, e.amount,
+      e.splitType==="none"?0:Math.round(toBase(e.amount*factorOf(e),e.currency)),
+      e.method==="card"?"刷卡":"現金", splitLabel(e), e.note||""
+    ]);
+    const ws3=XLSX.utils.aoa_to_sheet([h3,...d3]);
+    ws3['!cols']=[{wch:12},{wch:20},{wch:10},{wch:10},{wch:8},{wch:10},{wch:18},{wch:10},{wch:10},{wch:22}];
+    applyStyles(ws3,[5,6]);
+    XLSX.utils.book_append_sheet(wb,ws3,"帳目明細");
+
     XLSX.writeFile(wb,`分帳_${trip.name}.xlsx`);
-    toast("已下載 Excel");
+    toast("已下載 Excel ✓");
     return;
   }
   // CSV 後援（離線時）
@@ -725,6 +906,11 @@ async function exportSettlement(){
 
 /* ----- 結算 ----- */
 function settleHTML(){
+  if(!trip.baseCurrency) return `<div class="card" style="text-align:center;padding:32px 16px">
+    <div style="font-size:36px;margin-bottom:12px">💱</div>
+    <div style="font-weight:600;margin-bottom:8px">請先設定結算幣別</div>
+    <div class="hint">到「設定」頁選擇要用哪個幣別來結算</div>
+  </div>`;
   const {net,paid,spent}=computeBalances(trip);
   const sym=csym(trip.baseCurrency);
   const tx=settle(Object.assign({},net));
@@ -765,12 +951,11 @@ function settleHTML(){
       +'<span class="bal-net num '+(n>=0?"pos":"neg")+'">'+(n>=0?"應收 ":"應付 ")+sym+fmt(Math.abs(n))+'</span></span></div>';
   }).join("");
 
-  return '<div class="card"><div class="settle-head">'
-    +'<div class="card-title" style="margin:0">結算建議（以'+clabel(trip.baseCurrency)+'計）</div>'
-    +'<button class="link-btn" data-act="export">⬇︎ Excel</button></div>'+txHTML
-    +'<p class="hint" style="margin-top:10px">下載提醒：在 LINE／FB 內建瀏覽器可能無法存檔，建議用 Safari／Chrome 開啟本頁再下載。</p></div>'
+  return '<div class="card"><div class="card-title">結算建議（以'+clabel(trip.baseCurrency)+'計）</div>'+txHTML+'</div>'
     +breakdown
-    +'<div class="card"><div class="card-title">每人明細</div>'+balHTML+'</div>';
+    +'<div class="card"><div class="card-title">每人明細</div>'+balHTML+'</div>'
+    +'<button class="btn primary" data-act="export" style="width:100%;margin:4px 0 16px;font-size:16px;padding:16px;border-radius:16px">⬇︎ 匯出 Excel 報表</button>'
+    +'<p class="hint" style="text-align:center;margin-bottom:16px">在 LINE／FB 內建瀏覽器可能無法存檔，建議用 Safari／Chrome 開啟</p>';
 }
 
 /* ----- 成員 ----- */
@@ -786,10 +971,11 @@ function membersHTML(){
       const used=trip.expenses.some(e=>e.payerId===m.id||(e.participants||[]).includes(m.id)||(e.exact&&e.exact[m.id])||(e.shares&&e.shares[m.id]));
       return `<div class="mem-row">
         <input class="inp mem-name" data-mid="${m.id}" value="${esc(m.name)}" autocomplete="off" />
+        <button class="mem-save" data-savemid="${m.id}" style="display:none;padding:6px 12px;border-radius:10px;background:var(--accent,#2d9e82);color:#fff;font-size:13px;font-weight:700;border:none;cursor:pointer;flex-shrink:0">儲存</button>
         ${used?`<span class="mem-tag">使用中</span>`:`<button class="del mem-del" data-rm="${m.id}">移除</button>`}
       </div>`;
     }).join("")}
-    <p class="hint">點名字即可修改，改完點別處自動儲存（會同步更新所有帳目）。使用中的成員無法移除。</p>
+    <p class="hint">修改名字後點「儲存」即可更新（會同步更新所有帳目）。使用中的成員無法移除。</p>
   </div>`;
 }
 function bindMembers(){
@@ -799,14 +985,21 @@ function bindMembers(){
     if(!v)return;
     save(Object.assign({},trip,{members:[...trip.members,{id:uid(),name:v}]}));
   };
-  document.querySelectorAll(".mem-name").forEach(inp=>inp.onblur=()=>{
-    const id=inp.dataset.mid;
-    const cur=trip.members.find(m=>m.id===id); if(!cur)return;
-    const v=inp.value.trim();
-    if(!v){inp.value=cur.name;return;}      // 空白 → 還原
-    if(v===cur.name)return;
-    const members=trip.members.map(m=>m.id===id?Object.assign({},m,{name:v}):m);
-    save(Object.assign({},trip,{members}));
+  document.querySelectorAll(".mem-name").forEach(inp=>{
+    const saveBtn=inp.parentElement.querySelector('.mem-save');
+    inp.oninput=()=>{
+      const id=inp.dataset.mid;
+      const cur=trip.members.find(m=>m.id===id); if(!cur)return;
+      if(saveBtn) saveBtn.style.display=inp.value.trim()&&inp.value.trim()!==cur.name?'':'none';
+    };
+    if(saveBtn) saveBtn.onclick=()=>{
+      const id=inp.dataset.mid;
+      const cur=trip.members.find(m=>m.id===id); if(!cur)return;
+      const v=inp.value.trim();
+      if(!v){inp.value=cur.name;saveBtn.style.display='none';return;}
+      const members=trip.members.map(m=>m.id===id?Object.assign({},m,{name:v}):m);
+      save(Object.assign({},trip,{members}));
+    };
   });
   document.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{
     save(Object.assign({},trip,{members:trip.members.filter(x=>x.id!==b.dataset.rm)}));
@@ -817,7 +1010,14 @@ function bindMembers(){
 function settingsHTML(){
   const inUse=code=>trip.expenses.some(e=>e.currency===code);
   return `
+  <div class="card"><div class="card-title">旅程名稱</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <input class="inp" id="trip-name-inp" value="${esc(trip.name)}" maxlength="30" style="flex:1;font-size:15px" />
+      <button class="btn primary sm" id="trip-name-save" style="flex-shrink:0;padding:8px 16px">儲存</button>
+    </div>
+  </div>
   <div class="card"><div class="card-title">結算幣別</div>
+    ${!trip.baseCurrency?`<p style="color:#e53e3e;font-size:13px;margin:0 0 8px">⚠️ 尚未選擇，請點選下方幣別</p>`:''}
     <div class="seg seg-wrap">${clist().map(c=>`
       <button class="seg-btn ${trip.baseCurrency===c.code?"on":""}" data-base="${c.code}">${esc(c.label)}</button>`).join("")}</div>
     <p class="hint">所有結算金額會換算成這個幣別顯示。</p>
@@ -891,6 +1091,19 @@ function settingsHTML(){
   </div>`;
 }
 function bindSettings(){
+  // 旅程名稱儲存
+  const tnSave=document.getElementById("trip-name-save");
+  const tnInp=document.getElementById("trip-name-inp");
+  if(tnSave&&tnInp){
+    tnInp.oninput=()=>{ tnSave.style.background=tnInp.value.trim()!==trip.name?"#e53e3e":""; };
+    tnSave.onclick=()=>{
+      const n=tnInp.value.trim();
+      if(!n)return;
+      if(n===trip.name){toast("名稱沒有變更");return;}
+      trip.name=n; apiSave(trip); toast("旅程名稱已更新"); render();
+    };
+    tnInp.addEventListener("keydown",e=>{ if(e.key==="Enter")tnSave.click(); });
+  }
   const rl=document.querySelector('[data-act="reload"]');
   if(rl)rl.onclick=()=>location.reload();
   document.querySelectorAll("[data-base]").forEach(b=>b.onclick=()=>
